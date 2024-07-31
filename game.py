@@ -14,24 +14,28 @@ NUM_CARDS : dict[int, int] = {
 }
 
 class Game():
-    def __init__(self, num_players:int=2) -> None:
+    def __init__(self, num_players:int=2, human_readable:bool=True) -> None:
         # Assert that the number of players is valid
         assert num_players in NUM_CARDS.keys(), f"Invalid number of players, must be one of {list(NUM_CARDS.keys())}"
 
         # Assign self values
         self.num_players : int = num_players
         self.num_cards : int = NUM_CARDS[num_players]
+        self.human_readable : bool = human_readable
 
         # Create shuffled deck
         self.deck : list[str] = DECK.copy()
-        # random.shuffle(self.deck)
+        random.shuffle(self.deck)
 
         # Deal the cards
         self.hands : list[list[str]] = [self.deck[i*self.num_cards : (i+1)*self.num_cards] for i in range(0, num_players)]
-        self.hands[1] = ["0D", "0H", "0S"] + self.hands[1][3:]
         self.discard_pile : list[str] = [self.deck[self.num_players * self.num_cards]]
         self.deck : list[str] = self.deck[self.num_players * self.num_cards + 1:]
         self.melds : list[list[str]] = []
+
+        # Sort the hands for easier legibility
+        if human_readable:
+            self.hands = [self.sort_cards(hand) for hand in self.hands]
 
         # Randomise which player starts
         self.whose_go : int = 0 #random.randint(0, self.num_players - 1)
@@ -42,9 +46,11 @@ class Game():
         self.scores = [0 for i in range(self.num_players)]
 
 
-    def draw(self, from_deck:bool=True) -> None:
+    def draw(self, player:int, from_deck:bool=True) -> None:
         # Assert that the game hasn't ended
         assert not self.game_ended, "The game has ended; player cannot draw another card"
+        # Assert that the correct player is playing
+        assert player == self.whose_go, f"Player {player} can't draw a card because it's currently player {self.whose_go}'s turn"
         # Assert that the player hasn't drawn a card yet
         assert not self.has_drawn, "Player has already drawn a card this turn"
 
@@ -61,9 +67,15 @@ class Game():
         else:
             self.get_hand().append(self.discard_pile.pop())
 
+        self.sort_cards(self.get_hand(), in_place=True)
+
         self.has_drawn = True
 
-    def discard(self, card_index:int) -> None:
+    def discard(self, player:int, card_index:int) -> None:
+        # Assert that the game hasn't ended
+        assert not self.game_ended, "The game has ended; player cannot draw another card"
+        # Assert that the correct player is playing
+        assert player == self.whose_go, f"Player {player} can't draw a card because it's currently player {self.whose_go}'s turn"
         # Check that player has drawn a card before discarding
         assert self.has_drawn, "Player hasn't drawn a card yet"
         # Check that the card index is within the number of cards in the hand
@@ -76,7 +88,11 @@ class Game():
         # End turn
         self._end_turn()
 
-    def lay_meld(self, card_indices:list[int]) -> None:
+    def lay_meld(self, player:int, card_indices:list[int]) -> None:
+        # Assert that the game hasn't ended
+        assert not self.game_ended, "The game has ended; player cannot draw another card"
+        # Assert that the correct player is playing
+        assert player == self.whose_go, f"Player {player} can't draw a card because it's currently player {self.whose_go}'s turn"
         # Assert that player has drawn a card before laying down a meld
         assert self.has_drawn, "Player hasn't drawn a card yet"
         # Assert that all values of list are in range
@@ -92,6 +108,8 @@ class Game():
 
         # If it's a valid meld on its own, then lay it down
         if self.is_valid_meld(cards):
+            if self.human_readable:
+                self.sort_cards(cards, in_place=True)
             self.melds.append(cards)
             valid_meld = True
         
@@ -100,18 +118,33 @@ class Game():
             for existing_meld in self.melds:
                 if self.is_valid_meld(cards + existing_meld):
                     existing_meld += cards
+                    if self.human_readable:
+                        self.sort_cards(existing_meld, in_place=True)
                     valid_meld = True
                     break
 
-        if valid_meld:
-            # Remove from hand
-            sorted_indices = sorted(card_indices, reverse=True)
-            for index in sorted_indices:
-                self.get_hand().pop(index)
+        assert valid_meld, (f"Bad meld; {cards} is not itself a meld, nor does it fit with any of the other melds")
+
+        # Remove from hand
+        sorted_indices = sorted(card_indices, reverse=True)
+        for index in sorted_indices:
+            self.get_hand().pop(index)
+
+
+    def sort_cards(self, cards:list[str], in_place:bool=False) -> list[str] | None:
+        if in_place:
+            # Sort by suit
+            cards.sort(key=lambda x: SUITS.index(x[1]))
+            # Sort by number
+            cards.sort(key=lambda x: NUMBERS.index(x[0]))
 
         else:
-            print(f"Bad meld; {cards} is not itself a meld, nor does it fit with any of the other melds")
+            # Sort by suit
+            cards = sorted(cards, key=lambda x: SUITS.index(x[1]))
+            # Sort by number
+            cards = sorted(cards, key=lambda x: NUMBERS.index(x[0]))
 
+            return cards
 
     def is_valid_meld(self, cards:list[str]) -> bool:
         # Check that there are no duplicates in the list
@@ -177,24 +210,26 @@ class Game():
 if __name__ == "__main__":
     game = Game()
 
-    game.draw()
-    game.lay_meld([6, 7, 8])
-    game.discard(7)
+    print(game.sort_cards(["AC", "3H", "AD"]))
 
-    game.draw()
-    game.lay_meld([0, 1, 2])
-    game.discard(0)
+    game.draw(0)
+    game.lay_meld(0, [6, 7, 8])
+    game.discard(0, 7)
 
-    game.draw()
-    game.lay_meld([6])
-    game.discard(6)
+    game.draw(1)
+    game.lay_meld(1, [0, 1, 2])
+    game.discard(1, 0)
 
-    game.draw()
-    game.lay_meld([2])
-    game.discard(3)
+    game.draw(0)
+    game.lay_meld(0, [6])
+    game.discard(0, 6)
 
-    game.draw()
-    game.lay_meld([0, 1, 2, 3, 4, 5])
-    game.discard(0)
+    game.draw(1)
+    game.lay_meld(1, [2])
+    game.discard(1, 3)
+
+    game.draw(0)
+    game.lay_meld(0, [0, 1, 2, 3, 4, 5])
+    game.discard(0, 0)
 
     pass
