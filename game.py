@@ -23,27 +23,34 @@ class Game():
         self.num_cards : int = NUM_CARDS[num_players]
         self.human_readable : bool = human_readable
 
+        # Initialise scores
+        self.scores = [0 for i in range(self.num_players)]
+
+        # Deal cards
+        self.deal()
+        
+    
+    def deal(self):
         # Create shuffled deck
         self.deck : list[str] = DECK.copy()
         random.shuffle(self.deck)
 
         # Deal the cards
-        self.hands : list[list[str]] = [self.deck[i*self.num_cards : (i+1)*self.num_cards] for i in range(0, num_players)]
+        self.hands : list[list[str]] = [self.deck[i*self.num_cards : (i+1)*self.num_cards] for i in range(0, self.num_players)]
         self.discard_pile : list[str] = [self.deck[self.num_players * self.num_cards]]
         self.deck : list[str] = self.deck[self.num_players * self.num_cards + 1:]
         self.melds : list[list[str]] = []
 
         # Sort the hands for easier legibility
-        if human_readable:
+        if self.human_readable:
             self.hands = [self.sort_cards(hand) for hand in self.hands]
 
         # Randomise which player starts
-        self.whose_go : int = 0 #random.randint(0, self.num_players - 1)
+        self.whose_go : int = random.randint(0, self.num_players - 1)
 
         # Play hasn't started yet
         self.has_drawn = False
         self.game_ended = False
-        self.scores = [0 for i in range(self.num_players)]
 
 
     def draw(self, player:int, from_deck:bool=True) -> None:

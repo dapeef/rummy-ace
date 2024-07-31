@@ -3,6 +3,7 @@ import sys
 from game import Game
 import enum
 import time
+import math
 
 
 # Initialize Pygame
@@ -10,7 +11,7 @@ pygame.init()
 
 # Variables
 NUM_CARDS_PER_PLAYER = 10
-NUM_PLAYERS = 4
+NUM_PLAYERS = 2
 
 # Constants
 CARD_WIDTH, CARD_HEIGHT = 50, 75
@@ -137,7 +138,11 @@ def draw_scores(surface:pygame.surface.Surface, game:Game) -> None:
         surface.blit(text_surface, text_rect)
 
 def draw_info(surface:pygame.surface.Surface) -> None:
-    colour_multiplier = pygame.math.clamp((time.time() - info_time - INFO_ON_TIME)/INFO_FADE_TIME, 0, 1)
+    if info_text == "Game has ended; click anywhere to redeal":
+        colour_multiplier = math.sin((time.time() - info_time) * (2*math.pi) / INFO_FADE_TIME / 2) / 2 + .5
+    else:
+        colour_multiplier = pygame.math.clamp((time.time() - info_time - INFO_ON_TIME)/INFO_FADE_TIME, 0, 1)
+
     text_surface = INFO_FONT.render(info_text, True, [255 * colour_multiplier]*3)
     text_rect = text_surface.get_rect(center=(WIN_WIDTH//2, WIN_HEIGHT - MARGIN - INFO_FONT_SIZE//2))
     surface.blit(text_surface, text_rect)
@@ -153,74 +158,82 @@ def show_info(text:str):
 
 def check_button_click(position:tuple, card_rects:dict[str, pygame.Rect], game:Game, state:GUIState) -> None:
     """Check if a card is clicked and call a function."""
-    for id, rect in card_rects.items():
-        if rect.collidepoint(position):
-            # Handle the card click event here
-            print(f"Card clicked at {position}. Button id: {id}")
+    if game.game_ended:
+        # Start a new game
+        game.deal()
+    
+    else:
+        for id, rect in card_rects.items():
+            if rect.collidepoint(position):
+                # Handle the card click event here
+                print(f"Card clicked at {position}. Button id: {id}")
 
-            # Check for meld button clicks
-            if id == "create_meld":
-                state.is_selecting_meld = True
-            elif id == "cancel_meld":
-                state.is_selecting_meld = False
-            elif id == "confirm_meld":
-                state.is_selecting_meld = False
-                print(state.meld_selected)
-                game.lay_meld(game.whose_go, state.meld_selected)
+                # Check for meld button clicks
+                if id == "create_meld":
+                    state.is_selecting_meld = True
+                elif id == "cancel_meld":
+                    state.is_selecting_meld = False
+                elif id == "confirm_meld":
+                    state.is_selecting_meld = False
+                    print(state.meld_selected)
+                    game.lay_meld(game.whose_go, state.meld_selected)
 
-                state.meld_selected = []
+                    state.meld_selected = []
 
-            if not state.is_selecting_meld:
-                # Normal mode
-                if id == "deck":
-                    print("DECK")
-                    try:
-                        game.draw(player=game.whose_go, from_deck=True)
-                    except AssertionError as e:
-                        print(e)
-                        show_info(e)
-                elif id == "discard":
-                    print("DISCARD")
-                    try:
-                        game.draw(player=game.whose_go, from_deck=False)
-                    except AssertionError as e:
-                        print(e)
-                        show_info(e)
-                elif id[:4] == "card":
-                    # Parse player and card index
-                    _, player, card_index = [i for i in id.split("-")]
-                    player = int(player)
-                    card_index = int(card_index)
-                    print(f"{player = } and {card_index = }")
+                if not state.is_selecting_meld:
+                    # Normal mode
+                    if id == "deck":
+                        print("DECK")
+                        try:
+                            game.draw(player=game.whose_go, from_deck=True)
+                        except AssertionError as e:
+                            print(e)
+                            show_info(e)
+                    elif id == "discard":
+                        print("DISCARD")
+                        try:
+                            game.draw(player=game.whose_go, from_deck=False)
+                        except AssertionError as e:
+                            print(e)
+                            show_info(e)
+                    elif id[:4] == "card":
+                        # Parse player and card index
+                        _, player, card_index = [i for i in id.split("-")]
+                        player = int(player)
+                        card_index = int(card_index)
+                        print(f"{player = } and {card_index = }")
 
-                    # assert player == game.whose_go, f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}"
+                        # assert player == game.whose_go, f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}"
 
-                    try:
-                        game.discard(player=player, card_index=card_index)
-                    except AssertionError as e:
-                        print(e)
-                        show_info(e)
-            
-            else:
-                # Meld selection mode
-                if id[:4] == "card":
-                    # Parse player and card index
-                    _, player, card_index = [i for i in id.split("-")]
-                    player = int(player)
-                    card_index = int(card_index)
-                    print(f"{player = } and {card_index = } selected for meld")
+                        try:
+                            game.discard(player=player, card_index=card_index)
+                            
+                            if game.game_ended:
+                                show_info("Game has ended; click anywhere to redeal")
+                        except AssertionError as e:
+                            print(e)
+                            show_info(e)
+                
+                else:
+                    # Meld selection mode
+                    if id[:4] == "card":
+                        # Parse player and card index
+                        _, player, card_index = [i for i in id.split("-")]
+                        player = int(player)
+                        card_index = int(card_index)
+                        print(f"{player = } and {card_index = } selected for meld")
 
-                    if player == game.whose_go:
-                        if not card_index in state.meld_selected:
-                            # Card hasn't been clicked yet
-                            state.meld_selected.append(card_index)
+                        if player == game.whose_go:
+                            if not card_index in state.meld_selected:
+                                # Card hasn't been clicked yet
+                                state.meld_selected.append(card_index)
+                            else:
+                                state.meld_selected.pop(state.meld_selected.index(card_index))
                         else:
-                            state.meld_selected.pop(state.meld_selected.index(card_index))
-                    else:
-                        print(f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}")
-                        show_info(f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}")
+                            print(f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}")
+                            show_info(f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}")
 
-            break
+                break
 
 
 def main() -> None:
