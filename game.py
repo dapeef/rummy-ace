@@ -30,21 +30,31 @@ class Game():
         # Initialise scores
         self.scores = [0 for i in range(self.num_players)]
 
+        # Shuffle the cards in the deck
+        self.has_shuffled = False
+        self.shuffle()
         # Deal cards
-        self.deal()
-
+        # self.deal()
     
-    def deal(self):
+    def shuffle(self):
         # Create shuffled deck
         self.deck : list[str] = DECK.copy()
         random.shuffle(self.deck)
 
-        # Deal the cards
-        self.hands : list[list[str]] = [self.deck[i*self.num_cards : (i+1)*self.num_cards] for i in range(0, self.num_players)]
-        self.discard_pile : list[str] = [self.deck[self.num_players * self.num_cards]]
-        self.deck : list[str] = self.deck[self.num_players * self.num_cards + 1:]
+        self.discard_pile : list[str] = []
+        self.hands : list[list[str]] = [[] for _ in range(self.num_players)]
         self.melds : list[list[str]] = []
         self.meld_types : list[str] = []
+
+        self.has_shuffled = True
+
+    def deal(self):
+        assert self.has_shuffled, "Can't deal until you've shuffled"
+
+        # Deal the cards
+        self.hands = [self.deck[i*self.num_cards : (i+1)*self.num_cards] for i in range(0, self.num_players)]
+        self.discard_pile = [self.deck[self.num_players * self.num_cards]]
+        self.deck = self.deck[self.num_players * self.num_cards + 1:]
 
         # Sort the hands for easier legibility
         if self.human_readable:
@@ -53,9 +63,10 @@ class Game():
         # Randomise which player starts
         self.whose_go : int = random.randint(0, self.num_players - 1)
 
-        # Play hasn't started yet
+        # Play has just started
         self.has_drawn = False
         self.game_ended = False
+        self.has_shuffled = False
 
 
     def draw(self, player:int, from_deck:bool=True) -> None:
