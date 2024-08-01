@@ -1,4 +1,6 @@
 import random
+import copy
+
 
 NUMBERS : str = "A234567890JQK"
 DOUBLED_NUMBERS : str = NUMBERS + NUMBERS
@@ -13,8 +15,9 @@ NUM_CARDS : dict[int, int] = {
     6 : 6
 }
 
+
 class Game():
-    def __init__(self, num_players:int=2, human_readable:bool=True) -> None:
+    def __init__(self, num_players:int=2, human_readable:bool=True, allow_rearranging:bool=True) -> None:
         # Assert that the number of players is valid
         assert num_players in NUM_CARDS.keys(), f"Invalid number of players, must be one of {list(NUM_CARDS.keys())}"
 
@@ -22,6 +25,7 @@ class Game():
         self.num_players : int = num_players
         self.num_cards : int = NUM_CARDS[num_players]
         self.human_readable : bool = human_readable
+        self.allow_rearranging : bool= allow_rearranging
 
         # Initialise scores
         self.scores = [0 for i in range(self.num_players)]
@@ -40,6 +44,7 @@ class Game():
         self.discard_pile : list[str] = [self.deck[self.num_players * self.num_cards]]
         self.deck : list[str] = self.deck[self.num_players * self.num_cards + 1:]
         self.melds : list[list[str]] = []
+        self.meld_types : list[str] = []
 
         # Sort the hands for easier legibility
         if self.human_readable:
@@ -114,21 +119,93 @@ class Game():
         valid_meld = False
 
         # If it's a valid meld on its own, then lay it down
-        if self.is_valid_meld(cards):
+        valid, type = self.is_valid_meld(cards)
+        if valid:
             if self.human_readable:
                 self.sort_cards(cards, in_place=True, is_meld=True)
             self.melds.append(cards)
+            self.meld_types.append(type)
             valid_meld = True
         
         else:
             # Otherwise check if it fits with any melds which have already been laid down
             for existing_meld in self.melds:
-                if self.is_valid_meld(cards + existing_meld):
+                valid, type = self.is_valid_meld(cards + existing_meld)
+                if valid:
                     existing_meld += cards
                     if self.human_readable:
                         self.sort_cards(existing_meld, in_place=True, is_meld=True)
                     valid_meld = True
                     break
+            
+            # Check if melds can be rearranged to fit
+            if not valid_meld and self.allow_rearranging:
+                excess_cards = [len(meld)-3 for meld in self.melds]
+
+                # Check there are even enough cards to allow rearrangement
+                if sum(excess_cards) + len(cards) >= 3:
+                    def select_card(melds:list[list[str]], index:int) -> str | None:
+                        current_index = 0
+
+                        for i, meld in enumerate(melds):
+                            if len(meld) > 3:
+                                old_current_index = current_index
+                                if self.meld_types[i] == "run":
+                                    current_index += 2
+                                if self.meld_types[i] == "set":
+                                    current_index += len(meld)
+                                
+                                if current_index > index:
+                                    local_index = index - old_current_index
+                                    if self.meld_types[i] == "run":
+                                        self.sort_cards(meld, in_place=True, is_meld=True)
+                                        return meld.pop(local_index - 1) # pops end, then beginning; local_index will only take values of 0 or 1
+                                    if self.meld_types[i] == "set":
+                                        return meld.pop(local_index)
+                        
+                        return None # If hasn't returned by this point, then there are no more cards available
+
+                    indeces = [0, 0]
+                    
+                    check_finished = False
+                    while not check_finished:
+                        melds_temp = copy.deepcopy(self.melds)
+                        proposed_meld = copy.deepcopy(cards)
+
+                        run_out_of_cards = [False, False]
+
+                        while len(proposed_meld) < 3 and not any(run_out_of_cards):
+                            current_index = indeces[len(proposed_meld) - 1]
+
+                            next_card = select_card(melds_temp, current_index)
+                            if not next_card is None:
+                                proposed_meld.append(next_card)
+                            else:
+                                run_out_of_cards[len(proposed_meld) - 1] = True
+                        
+                        if run_out_of_cards[0] and len(cards) == 1 or \
+                           run_out_of_cards[1] and len(cards) == 2:
+                            # Completely finished
+                            check_finished = True
+                        elif run_out_of_cards[1] and len(cards) == 1:
+                            # Move carry - 2nd card has been exhaused, try a new first card
+                            indeces[0] += 1
+                            indeces[1] = 0
+                        else:
+                            # Successfully selected a potential meld
+                            if self.is_valid_meld(proposed_meld)[0]:
+                                # The meld actually works!
+                                if self.human_readable:
+                                    self.sort_cards(proposed_meld, in_place=True, is_meld=True)
+                                melds_temp.append(proposed_meld)
+                                self.melds = melds_temp
+
+                                valid_meld = True
+
+                                check_finished = True
+
+                            indeces[1] += 1
+
 
         assert valid_meld, (f"Bad meld; {cards} is not itself a meld, nor does it fit with any of the other melds")
 
@@ -195,9 +272,16 @@ class Game():
 
         # Check meld is long enough
         if len(cards) < 3:
-            return False
+            return False, None
 
-        return any([is_set(), is_run()])
+        # return any([is_set(), is_run()])
+    
+        if is_set():
+            return True, "set"
+        if is_run():
+            return True, "run"
+        else:
+            return False, None
     
     def _end_turn(self) -> None:
         # Check if the player has cards left. If not, the game has ended
@@ -230,8 +314,16 @@ class Game():
 
         return score
 
+
 if __name__ == "__main__":
-    game = Game(human_readable=False)
+    game = Game(human_readable=True)
+
+    # game.melds = [["Q♣", "K♣", "2♣", "5♣", "3♣", "4♣", "A♣"], ["A♥", "A♣", "A♦", "A♠"], ["2♥", "2♣", "2♦", "2♠"]]
+    # game.meld_types = ["run", "set", "set"]
+    # game.draw(game.whose_go)
+    # game.hands[game.whose_go][0] = "K♠"
+    # # game.hands[game.whose_go][1] = "2♠"
+    # game.lay_meld(game.whose_go, [0])
 
     # print(game.sort_cards(["K♣", "2♣", "5♣", "3♣", "4♣", "Q♣", "A♣"], is_meld=True))
 
