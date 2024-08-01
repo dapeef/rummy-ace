@@ -175,10 +175,13 @@ def check_button_click(position:tuple, card_rects:dict[str, pygame.Rect], game:G
                 elif id == "cancel_meld":
                     state.is_selecting_meld = False
                 elif id == "confirm_meld":
+                    try:
+                        game.lay_meld(game.whose_go, state.meld_selected)
+                    except AssertionError as e:
+                        print(e)
+                        show_info(e)
+                    
                     state.is_selecting_meld = False
-                    print(state.meld_selected)
-                    game.lay_meld(game.whose_go, state.meld_selected)
-
                     state.meld_selected = []
 
                 if not state.is_selecting_meld:
@@ -203,8 +206,6 @@ def check_button_click(position:tuple, card_rects:dict[str, pygame.Rect], game:G
                         player = int(player)
                         card_index = int(card_index)
                         print(f"{player = } and {card_index = }")
-
-                        # assert player == game.whose_go, f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}"
 
                         try:
                             game.discard(player=player, card_index=card_index)
