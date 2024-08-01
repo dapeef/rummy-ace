@@ -41,7 +41,7 @@ screen = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
 pygame.display.set_caption('Rummy GUI')
 
 # Fonts
-CARD_FONT = pygame.font.Font(None, size=36)
+CARD_FONT = pygame.font.Font("arial.ttf", size=30)
 INFO_FONT = pygame.font.Font(None, size=INFO_FONT_SIZE)
 SCORE_FONT = pygame.font.Font(None, size=30)
 
@@ -161,6 +161,7 @@ def check_button_click(position:tuple, card_rects:dict[str, pygame.Rect], game:G
     if game.game_ended:
         # Start a new game
         game.deal()
+        show_info("")
     
     else:
         for id, rect in card_rects.items():

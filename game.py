@@ -3,7 +3,7 @@ import random
 NUMBERS : str = "A234567890JQK"
 DOUBLED_NUMBERS : str = NUMBERS + NUMBERS
 CARD_SCORES : list[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10]
-SUITS : str = "CDHS"
+SUITS : str = "♣♦♥♠"
 DECK : list[str] = [f"{i}{j}" for j in SUITS for i in NUMBERS]
 NUM_CARDS : dict[int, int] = {
     2 : 10,
@@ -28,7 +28,7 @@ class Game():
 
         # Deal cards
         self.deal()
-        
+
     
     def deal(self):
         # Create shuffled deck
@@ -116,7 +116,7 @@ class Game():
         # If it's a valid meld on its own, then lay it down
         if self.is_valid_meld(cards):
             if self.human_readable:
-                self.sort_cards(cards, in_place=True)
+                self.sort_cards(cards, in_place=True, is_meld=True)
             self.melds.append(cards)
             valid_meld = True
         
@@ -126,7 +126,7 @@ class Game():
                 if self.is_valid_meld(cards + existing_meld):
                     existing_meld += cards
                     if self.human_readable:
-                        self.sort_cards(existing_meld, in_place=True)
+                        self.sort_cards(existing_meld, in_place=True, is_meld=True)
                     valid_meld = True
                     break
 
@@ -138,18 +138,34 @@ class Game():
             self.get_hand().pop(index)
 
 
-    def sort_cards(self, cards:list[str], in_place:bool=False) -> list[str] | None:
+    def sort_cards(self, cards:list[str], in_place:bool=False, is_meld=False) -> list[str] | None:
+        # Handle KA2 melds
+        if is_meld:
+            numbers_only = [card[0] for card in cards]
+            numbers_present = [num in numbers_only for num in NUMBERS]
+            numbers_present_doubled = numbers_present * 2
+
+            for i in range(len(numbers_present_doubled) - 1):
+                if numbers_present_doubled[i] == False and numbers_present_doubled[i+1] == True:
+                    # The start of the run is at i+1
+                    number_order = DOUBLED_NUMBERS[i+1 : i+1+len(NUMBERS)]
+                    break
+        
+        else:
+            number_order = NUMBERS
+
+
         if in_place:
             # Sort by suit
             cards.sort(key=lambda x: SUITS.index(x[1]))
             # Sort by number
-            cards.sort(key=lambda x: NUMBERS.index(x[0]))
+            cards.sort(key=lambda x: number_order.index(x[0]))
 
         else:
             # Sort by suit
             cards = sorted(cards, key=lambda x: SUITS.index(x[1]))
             # Sort by number
-            cards = sorted(cards, key=lambda x: NUMBERS.index(x[0]))
+            cards = sorted(cards, key=lambda x: number_order.index(x[0]))
 
             return cards
 
@@ -215,28 +231,28 @@ class Game():
         return score
 
 if __name__ == "__main__":
-    game = Game()
+    game = Game(human_readable=False)
 
-    print(game.sort_cards(["AC", "3H", "AD"]))
+    # print(game.sort_cards(["K♣", "2♣", "5♣", "3♣", "4♣", "Q♣", "A♣"], is_meld=True))
 
-    game.draw(0)
-    game.lay_meld(0, [6, 7, 8])
-    game.discard(0, 7)
+    # game.draw(0)
+    # game.lay_meld(0, [6, 7, 8])
+    # game.discard(0, 7)
 
-    game.draw(1)
-    game.lay_meld(1, [0, 1, 2])
-    game.discard(1, 0)
+    # game.draw(1)
+    # game.lay_meld(1, [0, 1, 2])
+    # game.discard(1, 0)
 
-    game.draw(0)
-    game.lay_meld(0, [6])
-    game.discard(0, 6)
+    # game.draw(0)
+    # game.lay_meld(0, [6])
+    # game.discard(0, 6)
 
-    game.draw(1)
-    game.lay_meld(1, [2])
-    game.discard(1, 3)
+    # game.draw(1)
+    # game.lay_meld(1, [2])
+    # game.discard(1, 3)
 
-    game.draw(0)
-    game.lay_meld(0, [0, 1, 2, 3, 4, 5])
-    game.discard(0, 0)
+    # game.draw(0)
+    # game.lay_meld(0, [0, 1, 2, 3, 4, 5])
+    # game.discard(0, 0)
 
     pass
