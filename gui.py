@@ -116,11 +116,14 @@ class GUIState:
                 self.meld_selected = []
 
     def update(self, game:Game) -> None:
+        # Update card states
         self.cards.update(game, self)
         
+        # Move green player bar
         if self.player_go_animator.target_value != game.whose_go:
             self.player_go_animator.start_animation(game.whose_go)
         
+        # Show/hide cards
         if game.game_ended:
             self.players_at_table = [i for i in range(game.num_players)]
         else:
@@ -470,7 +473,7 @@ class Card:
         pygame.draw.rect(surface, border_color, self.rect, CARD_BORDER_THICKNESS, border_radius=CARD_CORNER_RADIUS)
         
         # Draw the text
-        text_surface = CARD_FONT.render(self.text if self.face_up.get_current_value("abs_width") > 0 else "", True, RED if self.text[1] in "♣♠" else BLACK)
+        text_surface = CARD_FONT.render(self.text if self.face_up.get_current_value("abs_width") > 0 else "", True, BLACK if self.text[1] in "♣♠" else RED)
         text_surface = pygame.transform.scale(text_surface, (text_surface.get_width() * max(0, self.face_up.get_current_value("text_width")), text_surface.get_height()))
         text_rect = text_surface.get_rect(center=self.rect.center)
         surface.blit(text_surface, text_rect)
@@ -679,7 +682,7 @@ def main() -> None:
     game = Game(NUM_PLAYERS)
 
     # Initialise GUI state
-    state = GUIState(game, "pva")
+    state = GUIState(game, "pvp")
 
     # Deal cards
     game.deal()
