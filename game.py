@@ -36,6 +36,8 @@ class Game():
         # Deal cards
         # self.deal()
 
+        self.game_ended = False
+
 
     def shuffle(self):
         # Create shuffled deck
@@ -51,6 +53,7 @@ class Game():
         self.whose_go : int = random.randint(0, self.num_players - 1)
 
         self.has_shuffled = True
+        self.has_drawn = False
 
     def deal(self):
         assert self.has_shuffled, "Can't deal until you've shuffled"
@@ -65,8 +68,6 @@ class Game():
             self.hands = [self.sort_cards(hand) for hand in self.hands]
 
         # Play has just started
-        self.has_drawn = False
-        self.game_ended = False
         self.has_shuffled = False
 
 
@@ -119,6 +120,8 @@ class Game():
         assert player == self.whose_go, f"Player {player} can't draw a card because it's currently player {self.whose_go}'s turn"
         # Assert that player has drawn a card before laying down a meld
         assert self.has_drawn, "Player hasn't drawn a card yet"
+        # Assert that there'll be at least one card left in the player's hand after the meld is laid
+        assert len(self.get_hand()) > len(card_indices), "Can't play this meld; player must have a card to discard at the end of the turn"
         # Assert that all values of list are in range
         for index in card_indices:
             assert 0 <= index < len(self.get_hand()), f"Not able to discard card at index {index}; only {len(self.get_hand())} cards in the hand"
@@ -310,7 +313,7 @@ class Game():
         for player in range(self.num_players):
             self.scores[player] = self.get_score(self.get_hand(player))
 
-        print(f"Game has ended. Player {self.whose_go} has won. Scores on the doors: {self.scores}")
+        # print(f"Game has ended. Player {self.whose_go} has won. Scores on the doors: {self.scores}")
 
     def get_hand(self, player=None) -> list[str]:
         if player is None:

@@ -1,6 +1,6 @@
 import pygame
 import sys
-from game import Game
+from game import Game, NUM_CARDS
 import enum
 import time
 import math
@@ -11,8 +11,8 @@ import copy
 pygame.init()
 
 # Variables
-NUM_CARDS_PER_PLAYER = 10
 NUM_PLAYERS = 2
+NUM_CARDS_PER_PLAYER = NUM_CARDS[NUM_PLAYERS]
 
 # Constants
 CARD_WIDTH, CARD_HEIGHT = 50, 75
@@ -25,7 +25,7 @@ PLAYER_CARDS_X = MARGIN
 PLAYER_CARDS_Y = CARD_HEIGHT * (NUM_PLAYERS+1) + (NUM_PLAYERS+5)*MARGIN
 SCORE_WIDTH = 50
 WIN_WIDTH = CARD_WIDTH * (NUM_CARDS_PER_PLAYER+1) + MARGIN * (NUM_CARDS_PER_PLAYER+5) + SCORE_WIDTH
-WIN_HEIGHT = CARD_HEIGHT * (2*NUM_PLAYERS+1) + MARGIN * (2*NUM_PLAYERS+8) + INFO_FONT_SIZE
+WIN_HEIGHT = CARD_HEIGHT * (2*NUM_PLAYERS+1) + MARGIN * (3*NUM_PLAYERS+7) + INFO_FONT_SIZE
 DECK_X, DECK_Y = WIN_WIDTH//2 - CARD_WIDTH - MARGIN//2, 2*MARGIN
 DISCARD_X, DISCARD_Y = WIN_WIDTH//2 + MARGIN//2, 2*MARGIN
 MELD_BUTTON_X, MELD_BUTTON_Y = 2*MARGIN, 2*MARGIN
@@ -60,8 +60,12 @@ class GUIState:
         self.is_selecting_meld : bool = True
         self.change_meld_mode(False)
         self.meld_selected : list[int] = []
+
         self.cards : Cards = Cards(game, self)
+
         self.player_go_animator = SingleAnimator(game.whose_go, 0.5)
+
+        self.players_at_table = [] # Players who can see their cards
 
         self.update(game)
     
@@ -108,6 +112,11 @@ class GUIState:
         
         if self.player_go_animator.target_value != game.whose_go:
             self.player_go_animator.start_animation(game.whose_go)
+        
+        if game.game_ended:
+            self.players_at_table = [i for i in range(game.num_players)]
+        else:
+            self.players_at_table = [game.whose_go]
 
 
 class Animator:
@@ -124,7 +133,7 @@ class Animator:
         pass
 
 class SingleAnimator(Animator):
-    def __init__(self, initial_value:float, animation_time:float, animation_type:str="parametric") -> None:
+    def __init__(self, initial_value:float, animation_time:float, animation_type:str="parametric", parametric_alpha:float=1.7) -> None:
         self.start_time : float = 0
 
         self.start_value = initial_value
@@ -136,6 +145,7 @@ class SingleAnimator(Animator):
         self.animation_time = animation_time
         assert animation_type in ["linear", "bezier", "parametric", "half_step", "step"], f"Bad animation type: {animation_type}"
         self.animation_type = animation_type
+        self.alpha = parametric_alpha
     
     def start_animation(self, target_value) -> None:
         self.start_value = self.get_current_value()
@@ -162,9 +172,9 @@ class SingleAnimator(Animator):
         if self.animation_type == "parametric":
             # Uses the following equation: x^a / (x^a + (1-x)^a)
             # a -> alpha. With a=1, linear; as a -> inf, the line becomes steeper in the middle
-            alpha = 3
+            self.alpha = 3
 
-            distance = proportion**alpha / (proportion**alpha + (1 - proportion)**alpha)
+            distance = proportion**self.alpha / (proportion**self.alpha + (1 - proportion)**self.alpha)
             return self.start_value + (self.target_value - self.start_value) * distance
         
         if self.animation_type == "half_step":
@@ -240,8 +250,6 @@ class Cards:
         self.update(game, state)
     
     def update(self, game:Game, state:GUIState):
-        self.priority_draw_cards : list[Card] = []
-
         # Cards in the deck
         for card_name in game.deck:
             self.cards[card_name].update(DECK_X, DECK_Y, id="deck", face_up=False)
@@ -273,13 +281,16 @@ class Cards:
 
                 self.cards[card_name].update(
                     PLAYER_CARDS_X + MARGIN + j * (CARD_WIDTH + MARGIN),
-                    PLAYER_CARDS_Y + MARGIN + i * (CARD_HEIGHT + MARGIN),
+                    PLAYER_CARDS_Y + MARGIN + i * (CARD_HEIGHT + MARGIN*2),
                     id=f"card-{i}-{j}",
-                    selected=selected
+                    selected=selected,
+                    face_up = i in state.players_at_table
                 )
 
+
         # Handle priority cards - cards which need to be drawn last so they appear on top
-        # TODO an issue when a card is put onto the discard pile
+        self.priority_draw_cards : list[Card] = []
+
         if len(game.discard_pile) > 0:
 
             # Add up to two cards from the top of discard pile to priority drawing; to be drawn at the end
@@ -348,7 +359,13 @@ class Card:
 
     def draw(self, surface:pygame.surface.Surface) -> pygame.Rect:
         """Draw a card with rounded corners and text."""
-        self.rect = pygame.Rect(self.x.get_current_value(), self.y.get_current_value(), max(2*CARD_BORDER_THICKNESS, abs(self.face_up.get_current_value("abs_width"))), self.height)
+        self.rect = pygame.Rect(
+            self.x.get_current_value() + (self.width//2 - abs(self.face_up.get_current_value("abs_width")//2)),
+            self.y.get_current_value(),
+            max(2*CARD_BORDER_THICKNESS, abs(self.face_up.get_current_value("abs_width"))),
+            self.height)
+        
+        # Colour
         if self.face_up.get_current_value("boolean") == False or self.face_up.is_animating():
             # Flipping or is flipped
             card_color = self.face_up.get_current_value("color")
@@ -451,7 +468,7 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
                             game.discard(player=player, card_index=card_index)
                             
                             if game.game_ended:
-                                show_info("Game has ended; click anywhere to redeal")
+                                show_info("Game has ended; click anywhere to shuffle")
                         except AssertionError as e:
                             show_info(e)
                 
@@ -517,7 +534,7 @@ def main() -> None:
             GREEN,
             pygame.Rect(
                 PLAYER_CARDS_X,
-                PLAYER_CARDS_Y + (CARD_HEIGHT+MARGIN)*state.player_go_animator.get_current_value(),
+                PLAYER_CARDS_Y + (CARD_HEIGHT + MARGIN*2)*state.player_go_animator.get_current_value(),
                 (CARD_WIDTH+MARGIN) * (NUM_CARDS_PER_PLAYER+1) + MARGIN,
                 CARD_HEIGHT + 2*MARGIN),
             border_radius=CARD_CORNER_RADIUS + MARGIN
