@@ -33,7 +33,7 @@ MELD_X, MELD_Y = 2*MARGIN, 4*MARGIN + CARD_HEIGHT
 
 WHITE = (255, 255, 255)
 GREEN = (0, 100, 0)
-LIGHT_GREEN = (0, 200, 0)
+LIGHT_GREEN = (152, 251, 152)
 RED = (255, 0, 0)
 BLACK = (0, 0, 0)
 TABLE_COLOUR = (161, 102, 47) # Brown
@@ -61,8 +61,11 @@ class GUIState:
         self.change_meld_mode(False)
         self.meld_selected : list[int] = []
         self.cards : Cards = Cards(game, self)
+        self.player_go_animator = SingleAnimator(game.whose_go, 0.5)
+
+        self.update(game)
     
-    def change_meld_mode(self, enabled:bool):
+    def change_meld_mode(self, enabled:bool) -> None:
         if self.is_selecting_meld != enabled:
             self.is_selecting_meld = enabled
 
@@ -100,6 +103,130 @@ class GUIState:
 
                 self.meld_selected = []
 
+    def update(self, game:Game) -> None:
+        self.cards.update(game, self)
+        
+        if self.player_go_animator.target_value != game.whose_go:
+            self.player_go_animator.start_animation(game.whose_go)
+
+
+class Animator:
+    def __init__(self) -> None:
+        pass
+    
+    def start_animation(self, target_value) -> None:
+        pass
+
+    def get_current_value(self) -> float | bool:
+        pass
+
+    def is_animating(self) -> bool:
+        pass
+
+class SingleAnimator(Animator):
+    def __init__(self, initial_value:float, animation_time:float, animation_type:str="parametric") -> None:
+        self.start_time : float = 0
+
+        self.start_value = initial_value
+        self.target_value = initial_value
+
+        self.animating = False
+
+        assert animation_time >= 0, "Animation time cannot be negative"
+        self.animation_time = animation_time
+        assert animation_type in ["linear", "bezier", "parametric", "half_step", "step"], f"Bad animation type: {animation_type}"
+        self.animation_type = animation_type
+    
+    def start_animation(self, target_value) -> None:
+        self.start_value = self.get_current_value()
+        self.target_value = target_value
+        self.start_time = time.time()
+        self.animating = True
+    
+    def get_current_value(self) -> float:
+        proportion = pygame.math.clamp((time.time() - self.start_time) / self.animation_time, 0, 1)
+
+        if proportion == 1:
+            self.animating = False
+
+
+        if self.animation_type == "linear":
+            # Linear
+            return self.start_value + (self.target_value - self.start_value) * proportion
+        
+        if self.animation_type == "bezier":
+            # Cubic bezier function
+            distance = proportion * proportion * (3 - 2 * proportion)
+            return self.start_value + (self.target_value - self.start_value) * distance
+        
+        if self.animation_type == "parametric":
+            # Uses the following equation: x^a / (x^a + (1-x)^a)
+            # a -> alpha. With a=1, linear; as a -> inf, the line becomes steeper in the middle
+            alpha = 3
+
+            distance = proportion**alpha / (proportion**alpha + (1 - proportion)**alpha)
+            return self.start_value + (self.target_value - self.start_value) * distance
+        
+        if self.animation_type == "half_step":
+            # Step function at t=0.5
+            if proportion < 0.5:
+                return self.start_value
+            else:
+                return self.target_value
+            
+        if self.animation_type == "step":
+            # Step function at t=0.5
+            if proportion == 0:
+                return self.start_value
+            else:
+                return self.target_value
+
+    def is_animating(self) -> bool:
+        return self.animating
+    
+class CompoundAnimator(Animator):
+    def __init__(self, animators:dict[str,Animator]) -> None:
+        self.animators = animators
+    
+    def start_animation(self, target_values:dict[str,float]) -> None:
+        for key, value in target_values.items():
+            self.animators[key].start_animation(value)
+    
+    def get_current_value(self, key:str) -> float:
+        return self.animators[key].get_current_value()
+    
+    def is_animating(self) -> bool:
+        return any([animator.is_animating() for animator in self.animators.values()])
+    
+class ColorAnimator(Animator):
+    def __init__(self, initial_color:tuple[int], animation_time:float, animation_type:str="parametric") -> None:
+        self.animators = tuple([SingleAnimator(val, animation_time, animation_type) for val in initial_color])
+    
+    def start_animation(self, target_value:tuple[int]) -> None:
+        for i in range(len(self.animators)):
+            self.animators[i].start_animation(target_value[i])
+    
+    def get_current_value(self) -> float:
+        return tuple(animator.get_current_value() for animator in self.animators)
+    
+    def is_animating(self) -> bool:
+        return self.animators[0].is_animating()
+    
+class BooleanAnimator(Animator):
+    def __init__(self, initial_value:bool, animation_time:float, animation_type:str="step") -> None:
+        assert animation_type in ["half_step", "step"], f"Bad animation type: {animation_type}"
+        
+        self.float_animator = SingleAnimator(int(initial_value), animation_time, animation_type)
+    
+    def start_animation(self, target_value:bool) -> None:
+        self.float_animator.start_animation(int(target_value))
+    
+    def get_current_value(self) -> bool:
+        return bool(self.float_animator.get_current_value())
+    
+    def is_animating(self) -> bool:
+        return self.float_animator.is_animating()
+
 
 class Cards:
     def __init__(self, game:Game, state:GUIState) -> None:
@@ -122,10 +249,6 @@ class Cards:
         # Cards in the discard pile
         for card_name in game.discard_pile:
             self.cards[card_name].update(DISCARD_X, DISCARD_Y, id="discard")
-        
-        if len(game.discard_pile) > 0:
-            # Add top of discard pile to priority drawing; to be drawn at the end
-            self.priority_draw_cards.append(self.cards[game.discard_pile[-1]])
         
         # Cards in melds
         temp_x = MELD_X
@@ -155,6 +278,17 @@ class Cards:
                     selected=selected
                 )
 
+        # Handle priority cards - cards which need to be drawn last so they appear on top
+        # TODO an issue when a card is put onto the discard pile
+        if len(game.discard_pile) > 0:
+
+            # Add up to two cards from the top of discard pile to priority drawing; to be drawn at the end
+            self.priority_draw_cards += [self.cards[game.discard_pile[i]] for i in range(max(-2, -len(game.discard_pile)), 0)]
+
+        for card in self.cards.values():
+            if any([card.x.is_animating(), card.y.is_animating()]):
+                self.priority_draw_cards.append(card)
+
     
     def draw(self, surface:pygame.surface.Surface):
         for card in self.cards.values():
@@ -164,58 +298,65 @@ class Cards:
         for card in self.priority_draw_cards:
             card.draw(surface)
 
+
 class Card:
     def __init__(self, id:str, x:int, y:int, text:str="", width:int=CARD_WIDTH, height:int=CARD_HEIGHT, face_up:bool=True, selected:bool=False) -> None:
         self.id = id
 
-        self.x = x
-        self.y = y
-        self.start_x = x
-        self.start_y = y
-        self.target_x = x
-        self.target_y = y
+        self.x = SingleAnimator(x, CARD_ANIMATION_TIME)
+        self.y = SingleAnimator(y, CARD_ANIMATION_TIME)
         
         self.width = width
         self.height = height
 
-        self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        self.rect = pygame.Rect(self.x.get_current_value(), self.y.get_current_value(), self.width, self.height)
 
         self.text = text
 
-        self.face_up = face_up
-        self.selected = selected
-
-        self.motion_start_time = 0
+        self.face_up = CompoundAnimator({
+            "boolean": BooleanAnimator(face_up, CARD_ANIMATION_TIME, animation_type="half_step"),
+            "color": ColorAnimator(WHITE if face_up else RED, CARD_ANIMATION_TIME, animation_type="half_step"),
+            "abs_width": SingleAnimator(self.width if face_up else -self.width, CARD_ANIMATION_TIME),
+            "text_width": SingleAnimator(1 if face_up else -1, CARD_ANIMATION_TIME)
+        })
+        self.selected = CompoundAnimator({
+            "boolean": BooleanAnimator(selected, CARD_ANIMATION_TIME),
+            "color": ColorAnimator(LIGHT_GREEN if selected else WHITE, 0.5, animation_type="linear")
+        })
     
     def update(self, x:int, y:int, id:str|None=None, face_up:bool=True, selected:bool|None=False):
-        if x != self.target_x or y != self.target_y:
-            self.start_x = self.x
-            self.start_y = self.y
-            self.target_x = x
-            self.target_y = y
-
-            self.x = x
-            self.y = y
-
-            self.motion_start_time = time.time()
+        if x != self.x.target_value or y != self.y.target_value:
+            self.x.start_animation(x)
+            self.y.start_animation(y)
 
         if not id is None:
             self.id = id
     
-        if self.face_up != face_up:
-            self.face_up = face_up
+        if bool(self.face_up.animators["boolean"].float_animator.target_value) != face_up:
+            self.face_up.start_animation({
+                "boolean": face_up,
+                "color": WHITE if face_up else RED,
+                "abs_width": self.width if face_up else -self.width,
+                "text_width": 1 if face_up else -1
+            })
 
-            # TODO Animate flipping
-
-        if not selected is None:
-            self.selected = selected
-
-            # TODO animate selection
+        if not selected is None and bool(self.selected.animators["boolean"].float_animator.target_value) != selected:
+            self.selected.start_animation({
+                "boolean": selected,
+                "color": LIGHT_GREEN if selected else WHITE
+            })
 
     def draw(self, surface:pygame.surface.Surface) -> pygame.Rect:
         """Draw a card with rounded corners and text."""
-        self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
-        card_color = LIGHT_GREEN if self.selected else (WHITE if self.face_up else RED)
+        self.rect = pygame.Rect(self.x.get_current_value(), self.y.get_current_value(), max(2*CARD_BORDER_THICKNESS, abs(self.face_up.get_current_value("abs_width"))), self.height)
+        if self.face_up.get_current_value("boolean") == False or self.face_up.is_animating():
+            # Flipping or is flipped
+            card_color = self.face_up.get_current_value("color")
+        elif self.selected.get_current_value("boolean") == True or self.selected.is_animating():
+            card_color = self.selected.get_current_value("color")
+        else:
+            card_color = WHITE
+
         border_color = BLACK
         
         # Draw the card
@@ -223,7 +364,8 @@ class Card:
         pygame.draw.rect(surface, border_color, self.rect, CARD_BORDER_THICKNESS, border_radius=CARD_CORNER_RADIUS)
         
         # Draw the text
-        text_surface = CARD_FONT.render(self.text if self.face_up else "", True, BLACK)
+        text_surface = CARD_FONT.render(self.text if self.face_up.get_current_value("abs_width") > 0 else "", True, RED if self.text[1] in "♣♠" else BLACK)
+        text_surface = pygame.transform.scale(text_surface, (text_surface.get_width() * max(0, self.face_up.get_current_value("text_width")), text_surface.get_height()))
         text_rect = text_surface.get_rect(center=self.rect.center)
         surface.blit(text_surface, text_rect)
 
@@ -239,7 +381,7 @@ def draw_scores(surface:pygame.surface.Surface, game:Game) -> None:
         surface.blit(text_surface, text_rect)
 
 def draw_info(surface:pygame.surface.Surface) -> None:
-    if info_text == "Game has ended; click anywhere to redeal":
+    if "click" in info_text.lower():
         colour_multiplier = math.sin((time.time() - info_time) * (2*math.pi) / INFO_FADE_TIME / 2) / 2 + .5
     else:
         colour_multiplier = pygame.math.clamp((time.time() - info_time - INFO_ON_TIME)/INFO_FADE_TIME, 0, 1)
@@ -259,18 +401,19 @@ def show_info(text:str) -> None:
 
 def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
     """Check if a card is clicked and call a function."""
-    if game.game_ended:
-        # Start a new game
+    if game.game_ended and not game.has_shuffled:
+        # Shuffle
         game.shuffle()
+        show_info("Click again to deal")
+    
+    elif game.game_ended and game.has_shuffled:
+        # Start a new game
         game.deal()
         show_info("")
     
     else:
         for button in state.buttons:
             if button.rect.collidepoint(position):
-                # Handle the card click event here
-                print(f"Card clicked at {position}. Button id: {button.id}")
-
                 # Check for meld button clicks
                 if button.id == "create_meld":
                     state.change_meld_mode(True)
@@ -280,38 +423,29 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
                     try:
                         game.lay_meld(game.whose_go, state.meld_selected)
                     except AssertionError as e:
-                        print(e)
                         show_info(e)
                     
                     state.change_meld_mode(False)
                     
         for card in state.cards.cards.values():
             if card.rect.collidepoint(position):
-                # Handle the card click event here
-                print(f"Card clicked at {position}. Button id: {card.id}")
-
                 if not state.is_selecting_meld:
                     # Normal mode
                     if card.id == "deck":
-                        print("DECK")
                         try:
                             game.draw(player=game.whose_go, from_deck=True)
                         except AssertionError as e:
-                            print(e)
                             show_info(e)
                     elif card.id == "discard":
-                        print("DISCARD")
                         try:
                             game.draw(player=game.whose_go, from_deck=False)
                         except AssertionError as e:
-                            print(e)
                             show_info(e)
                     elif card.id[:4] == "card":
                         # Parse player and card index
                         _, player, card_index = [i for i in card.id.split("-")]
                         player = int(player)
                         card_index = int(card_index)
-                        print(f"{player = } and {card_index = }")
 
                         try:
                             game.discard(player=player, card_index=card_index)
@@ -319,7 +453,6 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
                             if game.game_ended:
                                 show_info("Game has ended; click anywhere to redeal")
                         except AssertionError as e:
-                            print(e)
                             show_info(e)
                 
                 else:
@@ -329,7 +462,6 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
                         _, player, card_index = [i for i in card.id.split("-")]
                         player = int(player)
                         card_index = int(card_index)
-                        print(f"{player = } and {card_index = } selected for meld")
 
                         if player == game.whose_go:
                             if not card_index in state.meld_selected:
@@ -338,7 +470,6 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
                             else:
                                 state.meld_selected.pop(state.meld_selected.index(card_index))
                         else:
-                            print(f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}")
                             show_info(f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}")
 
                 break
@@ -353,7 +484,6 @@ def main() -> None:
 
     # Deal cards
     game.deal()
-    state.cards.update(game, state)
     
     # Initialise pygame clock
     clock = pygame.time.Clock()
@@ -369,7 +499,7 @@ def main() -> None:
                 if event.button == 1:  # Left mouse button
                     on_mouse_click(event.pos, game, state)
         
-        state.cards.update(game, state)
+        state.update(game)
 
         screen.fill(WHITE)
 
@@ -385,7 +515,11 @@ def main() -> None:
         pygame.draw.rect(
             screen,
             GREEN,
-            pygame.Rect(PLAYER_CARDS_X, PLAYER_CARDS_Y + (CARD_HEIGHT+MARGIN)*game.whose_go, (CARD_WIDTH+MARGIN) * (NUM_CARDS_PER_PLAYER+1) + MARGIN, CARD_HEIGHT + 2*MARGIN),
+            pygame.Rect(
+                PLAYER_CARDS_X,
+                PLAYER_CARDS_Y + (CARD_HEIGHT+MARGIN)*state.player_go_animator.get_current_value(),
+                (CARD_WIDTH+MARGIN) * (NUM_CARDS_PER_PLAYER+1) + MARGIN,
+                CARD_HEIGHT + 2*MARGIN),
             border_radius=CARD_CORNER_RADIUS + MARGIN
         )
 

@@ -35,7 +35,8 @@ class Game():
         self.shuffle()
         # Deal cards
         # self.deal()
-    
+
+
     def shuffle(self):
         # Create shuffled deck
         self.deck : list[str] = DECK.copy()
@@ -45,6 +46,9 @@ class Game():
         self.hands : list[list[str]] = [[] for _ in range(self.num_players)]
         self.melds : list[list[str]] = []
         self.meld_types : list[str] = []
+
+        # Randomise which player starts
+        self.whose_go : int = random.randint(0, self.num_players - 1)
 
         self.has_shuffled = True
 
@@ -59,9 +63,6 @@ class Game():
         # Sort the hands for easier legibility
         if self.human_readable:
             self.hands = [self.sort_cards(hand) for hand in self.hands]
-
-        # Randomise which player starts
-        self.whose_go : int = random.randint(0, self.num_players - 1)
 
         # Play has just started
         self.has_drawn = False
