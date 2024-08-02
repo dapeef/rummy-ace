@@ -5,6 +5,7 @@ import enum
 import time
 import math
 import copy
+import random
 
 
 # Initialize Pygame
@@ -61,14 +62,16 @@ info_time : float = 0.0
 
 
 class GUIState:
-    def __init__(self, game:Game) -> None:
+    def __init__(self, game:Game, game_type:str="pvp") -> None:
+        # Assert that game_type is a valid option
+        assert game_type in ["pvp", "pva"], f"Bad game_type: {game_type}"
         self.buttons : dict[str, Button] = {
             "create_cancel_meld": Button("create_meld",
                     MELD_BUTTON_X, MELD_BUTTON_Y,
                     width=90,
                     text="Meld"),
             "confirm_meld": Button("confirm_meld",
-                    MELD_BUTTON_X + 110 + MARGIN, DISCARD_Y,
+                    MELD_BUTTON_X + 90 + MARGIN, DISCARD_Y,
                     width=120,
                     text="Confirm",
                     enabled=False)
@@ -82,6 +85,11 @@ class GUIState:
         self.player_go_animator = FloatAnimator(game.whose_go, 0.5)
 
         self.players_at_table = [] # Players who can see their cards
+        if game_type == "pvp":
+            self.human_players = [True for _ in range(game.num_players)] # Players who can see their cards
+        elif game_type == "pva":
+            self.human_players = [False for _ in range(game.num_players)]
+            self.human_players[random.randint(0, game.num_players-1)] = True
 
         self.update(game)
     
@@ -94,17 +102,18 @@ class GUIState:
                     width=110,
                     id="cancel_meld",
                     text="Cancel")
-                self.buttons["confirm_meld"].update(enabled=True)
+                self.buttons["confirm_meld"].update(
+                    enabled=True,
+                    x=MELD_BUTTON_X + 110 + MARGIN)
             
             else:
                 self.buttons["create_cancel_meld"].update(
                     width=90,
                     id="create_meld",
                     text="Meld")
-                self.buttons["confirm_meld"].update(enabled=False)
+                self.buttons["confirm_meld"].update(enabled=False, x=MELD_BUTTON_X + 90 + MARGIN)
 
                 self.meld_selected = []
-
 
     def update(self, game:Game) -> None:
         self.cards.update(game, self)
@@ -115,7 +124,7 @@ class GUIState:
         if game.game_ended:
             self.players_at_table = [i for i in range(game.num_players)]
         else:
-            self.players_at_table = [game.whose_go]
+            self.players_at_table = [game.whose_go] if self.human_players[game.whose_go] else []
 
 
 class Animator:
@@ -562,7 +571,7 @@ def draw_buttons(surface:pygame.surface.Surface, state:GUIState):
 def draw_scores(surface:pygame.surface.Surface, game:Game) -> None:
     for i, score in enumerate(game.scores):
         text_surface = SCORE_FONT.render(str(score), True, BLACK)
-        text_rect = text_surface.get_rect(center=(WIN_WIDTH - MARGIN - SCORE_WIDTH//2, PLAYER_CARDS_Y + MARGIN + i * (CARD_HEIGHT + MARGIN) + CARD_HEIGHT//2))
+        text_rect = text_surface.get_rect(center=(WIN_WIDTH - MARGIN - SCORE_WIDTH//2, PLAYER_CARDS_Y + MARGIN + i * (CARD_HEIGHT + MARGIN*2) + CARD_HEIGHT//2))
         surface.blit(text_surface, text_rect)
 
 def draw_info(surface:pygame.surface.Surface) -> None:
@@ -590,74 +599,79 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
         # Shuffle
         game.shuffle()
         show_info("Click again to deal")
+
+        return # Disallow any button being clicked at the same time
     
     elif game.game_ended and game.has_shuffled:
         # Start a new game
         game.deal()
         show_info("")
+
+        return # Disallow any button being clicked at the same time
     
-    else:
-        for button in state.buttons.values():
-            if button.rect.collidepoint(position):
-                # Check for meld button clicks
-                if button.id == "create_meld":
-                    state.change_meld_mode(True)
-                elif button.id == "cancel_meld":
-                    state.change_meld_mode(False)
-                elif button.id == "confirm_meld":
+    for button in state.buttons.values():
+        if button.rect.collidepoint(position) and button.enabled.get_current_value("boolean"):
+            # Check for meld button clicks
+            if button.id == "create_meld":
+                state.change_meld_mode(True)
+            elif button.id == "cancel_meld":
+                state.change_meld_mode(False)
+            elif button.id == "confirm_meld":
+                try:
+                    game.lay_meld(game.whose_go, state.meld_selected)
+                except AssertionError as e:
+                    show_info(e)
+                
+                state.change_meld_mode(False)
+
+            return # Disallow multiple buttons being clicked at the same time
+                
+    for card in state.cards.cards.values():
+        if card.rect.collidepoint(position):
+            if not state.is_selecting_meld:
+                # Normal mode
+                if card.id == "deck":
                     try:
-                        game.lay_meld(game.whose_go, state.meld_selected)
+                        game.draw(player=game.whose_go, from_deck=True)
                     except AssertionError as e:
                         show_info(e)
-                    
-                    state.change_meld_mode(False)
-                    
-        for card in state.cards.cards.values():
-            if card.rect.collidepoint(position):
-                if not state.is_selecting_meld:
-                    # Normal mode
-                    if card.id == "deck":
-                        try:
-                            game.draw(player=game.whose_go, from_deck=True)
-                        except AssertionError as e:
-                            show_info(e)
-                    elif card.id == "discard":
-                        try:
-                            game.draw(player=game.whose_go, from_deck=False)
-                        except AssertionError as e:
-                            show_info(e)
-                    elif card.id[:4] == "card":
-                        # Parse player and card index
-                        _, player, card_index = [i for i in card.id.split("-")]
-                        player = int(player)
-                        card_index = int(card_index)
+                elif card.id == "discard":
+                    try:
+                        game.draw(player=game.whose_go, from_deck=False)
+                    except AssertionError as e:
+                        show_info(e)
+                elif card.id[:4] == "card":
+                    # Parse player and card index
+                    _, player, card_index = [i for i in card.id.split("-")]
+                    player = int(player)
+                    card_index = int(card_index)
 
-                        try:
-                            game.discard(player=player, card_index=card_index)
-                            
-                            if game.game_ended:
-                                show_info("Game has ended; click anywhere to shuffle")
-                        except AssertionError as e:
-                            show_info(e)
-                
-                else:
-                    # Meld selection mode
-                    if card.id[:4] == "card":
-                        # Parse player and card index
-                        _, player, card_index = [i for i in card.id.split("-")]
-                        player = int(player)
-                        card_index = int(card_index)
+                    try:
+                        game.discard(player=player, card_index=card_index)
+                        
+                        if game.game_ended:
+                            show_info("Game has ended; click anywhere to shuffle")
+                    except AssertionError as e:
+                        show_info(e)
+            
+            else:
+                # Meld selection mode
+                if card.id[:4] == "card":
+                    # Parse player and card index
+                    _, player, card_index = [i for i in card.id.split("-")]
+                    player = int(player)
+                    card_index = int(card_index)
 
-                        if player == game.whose_go:
-                            if not card_index in state.meld_selected:
-                                # Card hasn't been clicked yet
-                                state.meld_selected.append(card_index)
-                            else:
-                                state.meld_selected.pop(state.meld_selected.index(card_index))
+                    if player == game.whose_go:
+                        if not card_index in state.meld_selected:
+                            # Card hasn't been clicked yet
+                            state.meld_selected.append(card_index)
                         else:
-                            show_info(f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}")
+                            state.meld_selected.pop(state.meld_selected.index(card_index))
+                    else:
+                        show_info(f"Can't touch that card, it's player {game.whose_go}'s turn, not player {player}")
 
-                break
+            return # Disallow multiple buttons being clicked at the same time
 
 
 def main() -> None:
@@ -665,7 +679,7 @@ def main() -> None:
     game = Game(NUM_PLAYERS)
 
     # Initialise GUI state
-    state = GUIState(game)
+    state = GUIState(game, "pva")
 
     # Deal cards
     game.deal()
