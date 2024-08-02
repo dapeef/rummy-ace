@@ -69,6 +69,7 @@ class Game():
 
         # Play has just started
         self.has_shuffled = False
+        self.game_ended = False
 
 
     def draw(self, player:int, from_deck:bool=True) -> None:
@@ -311,7 +312,7 @@ class Game():
         self.game_ended = True
 
         for player in range(self.num_players):
-            self.scores[player] = self.get_score(self.get_hand(player))
+            self.scores[player] += self.get_score(self.get_hand(player))
 
         # print(f"Game has ended. Player {self.whose_go} has won. Scores on the doors: {self.scores}")
 

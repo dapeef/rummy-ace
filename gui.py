@@ -19,6 +19,11 @@ CARD_WIDTH, CARD_HEIGHT = 50, 75
 CARD_CORNER_RADIUS = 5
 CARD_BORDER_THICKNESS = 2
 CARD_ANIMATION_TIME = 1 # secs
+
+BUTTON_CORNER_RADIUS = 5
+BUTTON_BORDER_THICKNESS = 2
+BUTTON_ANIMATION_TIME = .5 # secs
+
 INFO_FONT_SIZE = 25
 MARGIN = 10
 PLAYER_CARDS_X = MARGIN
@@ -44,6 +49,7 @@ pygame.display.set_caption('Rummy GUI')
 
 # Fonts
 CARD_FONT = pygame.font.Font("arial.ttf", size=30)
+BUTTON_FONT = pygame.font.Font("arial.ttf", size=30)
 INFO_FONT = pygame.font.Font(None, size=INFO_FONT_SIZE)
 SCORE_FONT = pygame.font.Font(None, size=30)
 
@@ -56,14 +62,24 @@ info_time : float = 0.0
 
 class GUIState:
     def __init__(self, game:Game) -> None:
-        self.buttons : list[Card] = []
+        self.buttons : dict[str, Button] = {
+            "create_cancel_meld": Button("create_meld",
+                    MELD_BUTTON_X, MELD_BUTTON_Y,
+                    width=90,
+                    text="Meld"),
+            "confirm_meld": Button("confirm_meld",
+                    MELD_BUTTON_X + 110 + MARGIN, DISCARD_Y,
+                    width=120,
+                    text="Confirm",
+                    enabled=False)
+        }
         self.is_selecting_meld : bool = True
         self.change_meld_mode(False)
         self.meld_selected : list[int] = []
 
         self.cards : Cards = Cards(game, self)
 
-        self.player_go_animator = SingleAnimator(game.whose_go, 0.5)
+        self.player_go_animator = FloatAnimator(game.whose_go, 0.5)
 
         self.players_at_table = [] # Players who can see their cards
 
@@ -73,39 +89,22 @@ class GUIState:
         if self.is_selecting_meld != enabled:
             self.is_selecting_meld = enabled
 
-            # Delete old meld buttons
-            for i, button in reversed(list(enumerate(self.buttons))):
-                if button.id == "create_meld":
-                    self.buttons.pop(i)
-                if button.id == "cancel_meld":
-                    self.buttons.pop(i)
-                if button.id == "confirm_meld":
-                    self.buttons.pop(i)
-
-            # Create new meld buttons
             if enabled:
-                self.buttons.append(Card(
-                    "cancel_meld",
-                    MELD_BUTTON_X, DISCARD_Y,
-                    width=110, height=50,
-                    text="Cancel"
-                ))
-                self.buttons.append(Card(
-                    "confirm_meld",
-                    MELD_BUTTON_X + 110 + MARGIN, DISCARD_Y,
-                    width=120, height=50,
-                    text="Confirm"
-                ))
+                self.buttons["create_cancel_meld"].update(
+                    width=110,
+                    id="cancel_meld",
+                    text="Cancel")
+                self.buttons["confirm_meld"].update(enabled=True)
             
             else:
-                self.buttons.append(Card(
-                    "create_meld",
-                    MELD_BUTTON_X, MELD_BUTTON_Y,
-                    width=90, height=50,
-                    text="Meld"
-                ))
+                self.buttons["create_cancel_meld"].update(
+                    width=90,
+                    id="create_meld",
+                    text="Meld")
+                self.buttons["confirm_meld"].update(enabled=False)
 
                 self.meld_selected = []
+
 
     def update(self, game:Game) -> None:
         self.cards.update(game, self)
@@ -126,14 +125,20 @@ class Animator:
     def start_animation(self, target_value) -> None:
         pass
 
-    def get_current_value(self) -> float | bool:
+    def get_current_value(self) -> float | bool | str:
+        pass
+        
+    def get_target_value(self) -> float | bool | str:
+        pass
+
+    def set_value(self, value) -> None:
         pass
 
     def is_animating(self) -> bool:
         pass
 
-class SingleAnimator(Animator):
-    def __init__(self, initial_value:float, animation_time:float, animation_type:str="parametric", parametric_alpha:float=1.7) -> None:
+class FloatAnimator(Animator):
+    def __init__(self, initial_value:float, animation_time:float, animation_type:str="parametric", parametric_alpha:float=3) -> None:
         self.start_time : float = 0
 
         self.start_value = initial_value
@@ -143,7 +148,7 @@ class SingleAnimator(Animator):
 
         assert animation_time >= 0, "Animation time cannot be negative"
         self.animation_time = animation_time
-        assert animation_type in ["linear", "bezier", "parametric", "half_step", "step"], f"Bad animation type: {animation_type}"
+        assert animation_type in ["linear", "bezier", "parametric", "half_step", "step", "parametric_bounce"], f"Bad animation type: {animation_type}"
         self.animation_type = animation_type
         self.alpha = parametric_alpha
     
@@ -172,8 +177,6 @@ class SingleAnimator(Animator):
         if self.animation_type == "parametric":
             # Uses the following equation: x^a / (x^a + (1-x)^a)
             # a -> alpha. With a=1, linear; as a -> inf, the line becomes steeper in the middle
-            self.alpha = 3
-
             distance = proportion**self.alpha / (proportion**self.alpha + (1 - proportion)**self.alpha)
             return self.start_value + (self.target_value - self.start_value) * distance
         
@@ -191,6 +194,25 @@ class SingleAnimator(Animator):
             else:
                 return self.target_value
 
+        if self.animation_type == "parametric_bounce":
+            # Parametric equation, but returning to original value
+            self.alpha = 3
+
+            distance = 1 - 2 * abs(0.5 - (proportion**self.alpha / (proportion**self.alpha + (1 - proportion)**self.alpha)))
+            return self.start_value + (self.target_value - self.start_value) * distance
+
+
+    def get_target_value(self) -> float:
+        return self.target_value
+
+    def set_value(self, value:float) -> None:
+        self.start_time : float = 0
+
+        self.start_value = value
+        self.target_value = value
+
+        self.animating = False
+
     def is_animating(self) -> bool:
         return self.animating
     
@@ -198,27 +220,41 @@ class CompoundAnimator(Animator):
     def __init__(self, animators:dict[str,Animator]) -> None:
         self.animators = animators
     
-    def start_animation(self, target_values:dict[str,float]) -> None:
+    def start_animation(self, target_values:dict[str,float|bool|str]) -> None:
         for key, value in target_values.items():
             self.animators[key].start_animation(value)
     
-    def get_current_value(self, key:str) -> float:
+    def get_current_value(self, key:str) -> float|bool|str:
         return self.animators[key].get_current_value()
-    
+        
+    def get_target_value(self, key:str) -> float|bool|str:
+        return self.animators[key].get_target_value()
+
+    def set_value(self, values:dict[str,float|bool|str]) -> None:
+        for key, value in values.items():
+            self.animators[key].set_value(value)
+
     def is_animating(self) -> bool:
         return any([animator.is_animating() for animator in self.animators.values()])
     
 class ColorAnimator(Animator):
-    def __init__(self, initial_color:tuple[int], animation_time:float, animation_type:str="parametric") -> None:
-        self.animators = tuple([SingleAnimator(val, animation_time, animation_type) for val in initial_color])
+    def __init__(self, initial_color:tuple[int], animation_time:float, animation_type:str="parametric", parametric_alpha:float=1.7) -> None:
+        self.animators = tuple([FloatAnimator(val, animation_time, animation_type, parametric_alpha=parametric_alpha) for val in initial_color])
     
     def start_animation(self, target_value:tuple[int]) -> None:
         for i in range(len(self.animators)):
             self.animators[i].start_animation(target_value[i])
     
-    def get_current_value(self) -> float:
+    def get_current_value(self) -> tuple[int]:
         return tuple(animator.get_current_value() for animator in self.animators)
-    
+        
+    def get_target_value(self) -> tuple[int]:
+        return tuple(animator.get_target_value() for animator in self.animators)
+
+    def set_value(self, value:tuple[int]) -> None:
+        for i in range(len(self.animators)):
+            self.animators[i].set_value(value[i])
+
     def is_animating(self) -> bool:
         return self.animators[0].is_animating()
     
@@ -226,16 +262,56 @@ class BooleanAnimator(Animator):
     def __init__(self, initial_value:bool, animation_time:float, animation_type:str="step") -> None:
         assert animation_type in ["half_step", "step"], f"Bad animation type: {animation_type}"
         
-        self.float_animator = SingleAnimator(int(initial_value), animation_time, animation_type)
+        self.float_animator = FloatAnimator(int(initial_value), animation_time, animation_type)
     
     def start_animation(self, target_value:bool) -> None:
-        self.float_animator.start_animation(int(target_value))
+        if target_value != self.float_animator.target_value:
+            self.float_animator.start_animation(int(target_value))
     
     def get_current_value(self) -> bool:
         return bool(self.float_animator.get_current_value())
-    
+        
+    def get_target_value(self) -> bool:
+        return bool(self.float_animator.target_value)
+
+    def set_value(self, value:bool) -> None:
+        self.float_animator.set_value(int(value))
+
     def is_animating(self) -> bool:
         return self.float_animator.is_animating()
+  
+class TextAnimator(Animator):
+    def __init__(self, initial_text:str, animation_time:float, animation_type:str="step") -> None:
+        assert animation_type in ["half_step", "step"], f"Bad animation type: {animation_type}"
+
+        self.start_text = initial_text
+        self.target_text = initial_text
+        
+        self.bool_animator = BooleanAnimator(0, animation_time, animation_type)
+    
+    def start_animation(self, target_text:str) -> None:
+        if target_text != self.target_text:
+            self.start_text = self.target_text
+            self.target_text = target_text
+
+            self.bool_animator.float_animator.start_value = 0
+            self.bool_animator.float_animator.target_value = 0
+            self.bool_animator.start_animation(1)
+    
+    def get_current_value(self) -> str:
+        return self.target_text if self.bool_animator.get_current_value() else self.start_text
+        
+    def get_target_value(self) -> str:
+        return self.target_text
+
+    def set_value(self, value:str) -> None:
+        self.start_text = value
+        self.target_text = value
+
+        self.bool_animator.set_value(0)
+
+    def is_animating(self) -> bool:
+        return self.bool_animator.is_animating()
 
 
 class Cards:
@@ -300,7 +376,6 @@ class Cards:
             if any([card.x.is_animating(), card.y.is_animating()]):
                 self.priority_draw_cards.append(card)
 
-    
     def draw(self, surface:pygame.surface.Surface):
         for card in self.cards.values():
             if not card in self.priority_draw_cards:
@@ -309,13 +384,12 @@ class Cards:
         for card in self.priority_draw_cards:
             card.draw(surface)
 
-
 class Card:
     def __init__(self, id:str, x:int, y:int, text:str="", width:int=CARD_WIDTH, height:int=CARD_HEIGHT, face_up:bool=True, selected:bool=False) -> None:
         self.id = id
 
-        self.x = SingleAnimator(x, CARD_ANIMATION_TIME)
-        self.y = SingleAnimator(y, CARD_ANIMATION_TIME)
+        self.x = FloatAnimator(x, CARD_ANIMATION_TIME)
+        self.y = FloatAnimator(y, CARD_ANIMATION_TIME)
         
         self.width = width
         self.height = height
@@ -327,15 +401,21 @@ class Card:
         self.face_up = CompoundAnimator({
             "boolean": BooleanAnimator(face_up, CARD_ANIMATION_TIME, animation_type="half_step"),
             "color": ColorAnimator(WHITE if face_up else RED, CARD_ANIMATION_TIME, animation_type="half_step"),
-            "abs_width": SingleAnimator(self.width if face_up else -self.width, CARD_ANIMATION_TIME),
-            "text_width": SingleAnimator(1 if face_up else -1, CARD_ANIMATION_TIME)
+            "abs_width": FloatAnimator(self.width if face_up else -self.width, CARD_ANIMATION_TIME),
+            "text_width": FloatAnimator(1 if face_up else -1, CARD_ANIMATION_TIME)
         })
         self.selected = CompoundAnimator({
             "boolean": BooleanAnimator(selected, CARD_ANIMATION_TIME),
             "color": ColorAnimator(LIGHT_GREEN if selected else WHITE, 0.5, animation_type="linear")
         })
     
-    def update(self, x:int, y:int, id:str|None=None, face_up:bool=True, selected:bool|None=False):
+    def update(self, x:int|None=None, y:int|None=None, id:str|None=None, face_up:bool=True, selected:bool|None=False):
+        # Position
+        if x is None:
+            x = self.x.target_value
+        if y is None:
+            y = self.y.target_value
+
         if x != self.x.target_value or y != self.y.target_value:
             self.x.start_animation(x)
             self.y.start_animation(y)
@@ -387,8 +467,96 @@ class Card:
         surface.blit(text_surface, text_rect)
 
 
+class Button:
+    def __init__(self, id:str, x:int, y:int, text, width:int, height:int=CARD_WIDTH, enabled:bool=True) -> None:
+        self.id = id
+
+        self.x = FloatAnimator(x, BUTTON_ANIMATION_TIME)
+        self.y = FloatAnimator(y, BUTTON_ANIMATION_TIME)
+        
+        self.width = FloatAnimator(width, BUTTON_ANIMATION_TIME)
+        self.height = FloatAnimator(height, BUTTON_ANIMATION_TIME)
+
+        self.rect = pygame.Rect(self.x.get_current_value(), self.y.get_current_value(), self.width.get_current_value(), self.height.get_current_value())
+
+        self.text = CompoundAnimator({
+            "text": TextAnimator(text, BUTTON_ANIMATION_TIME, animation_type="half_step"),
+            "color": ColorAnimator(BLACK if enabled else TABLE_COLOUR, BUTTON_ANIMATION_TIME, animation_type="parametric_bounce", parametric_alpha=1.5)
+        })
+
+        self.enabled = CompoundAnimator({
+            "boolean": BooleanAnimator(enabled, BUTTON_ANIMATION_TIME, animation_type="step"),
+            "background_color": ColorAnimator(WHITE if enabled else TABLE_COLOUR, BUTTON_ANIMATION_TIME),
+            "border_color": ColorAnimator(BLACK if enabled else TABLE_COLOUR, BUTTON_ANIMATION_TIME),
+            "text_color": ColorAnimator(BLACK if enabled else TABLE_COLOUR, BUTTON_ANIMATION_TIME)
+        })
+    
+    def update(self, x:int|None=None, y:int|None=None, width:int|None=None, height:int|None=None, id:str|None=None, text:str|None=None, enabled:bool|None=None):
+        # Position
+        if x is None:
+            x = self.x.target_value
+        if y is None:
+            y = self.y.target_value
+
+        if x != self.x.target_value or y != self.y.target_value:
+            self.x.start_animation(x)
+            self.y.start_animation(y)
+
+        # Size
+        if not width is None and width != self.width.target_value:
+            self.width.start_animation(width)
+        if not height is None and height != self.height.target_value:
+            self.height.start_animation(height)
+
+        # ID
+        if not id is None:
+            self.id = id
+
+        # Text
+        if not text is None and text != self.text.get_target_value("text"):
+            self.text.start_animation({
+                "text": text,
+                "color": WHITE
+            })
+
+        # Enabled
+        if not enabled is None and self.enabled.get_current_value("boolean") != enabled:
+            self.enabled.start_animation({
+                "boolean": enabled,
+                "background_color": WHITE if enabled else TABLE_COLOUR,
+                "border_color": BLACK if enabled else TABLE_COLOUR,
+                "text_color": BLACK if enabled else TABLE_COLOUR
+            })
+
+    def draw(self, surface:pygame.surface.Surface) -> pygame.Rect:
+        """Draw a card with rounded corners and text."""
+        self.rect = pygame.Rect(
+            self.x.get_current_value(),
+            self.y.get_current_value(),
+            self.width.get_current_value(),
+            self.height.get_current_value())
+        
+        # Colour
+        if self.enabled.is_animating() or not self.enabled.get_current_value("boolean"):
+            text_color = self.enabled.get_current_value("text_color")
+        else:
+            text_color = self.text.get_current_value("color")
+        border_color = self.enabled.get_current_value("border_color")
+        
+        # Draw the background
+        pygame.draw.rect(surface, self.enabled.get_current_value("background_color"), self.rect, border_radius=CARD_CORNER_RADIUS)
+        
+        # Draw the text
+        text_surface = BUTTON_FONT.render(self.text.get_current_value("text"), True, text_color)
+        text_rect = text_surface.get_rect(center=self.rect.center)
+        surface.blit(text_surface, text_rect)
+
+        # Draw the border
+        pygame.draw.rect(surface, border_color, self.rect, BUTTON_BORDER_THICKNESS, border_radius=BUTTON_CORNER_RADIUS)
+
+
 def draw_buttons(surface:pygame.surface.Surface, state:GUIState):
-    for button in state.buttons:
+    for button in state.buttons.values():
         button.draw(surface)
 
 def draw_scores(surface:pygame.surface.Surface, game:Game) -> None:
@@ -429,7 +597,7 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
         show_info("")
     
     else:
-        for button in state.buttons:
+        for button in state.buttons.values():
             if button.rect.collidepoint(position):
                 # Check for meld button clicks
                 if button.id == "create_meld":
