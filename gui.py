@@ -1,6 +1,6 @@
 import pygame
 import sys
-from game import Game, NUM_CARDS
+import rummy
 import enum
 import time
 import math
@@ -13,8 +13,8 @@ pygame.init()
 
 
 # Variables
-NUM_PLAYERS = 2
-NUM_CARDS_PER_PLAYER = NUM_CARDS[NUM_PLAYERS]
+NUM_PLAYERS = 4
+NUM_CARDS_PER_PLAYER = rummy.NUM_CARDS[NUM_PLAYERS]
 
 # Constants
 CARD_WIDTH, CARD_HEIGHT = 50, 75
@@ -64,7 +64,7 @@ info_time : float = 0.0
 
 
 class GUIState:
-    def __init__(self, game:Game, num_human_players:int|None=None) -> None:
+    def __init__(self, game:rummy.Game, num_human_players:int|None=None) -> None:
         if num_human_players is None:
             num_human_players = game.num_players
         # Assert that 0 <= num_human_players <= num_players
@@ -136,11 +136,11 @@ class GUIState:
                 self.meld_selected = []
 
     def check_for_wait(self, game):
-        if self.human_players[game.whose_go] and self.num_human_players > 1:
+        if self.human_players[game.whose_go] and self.num_human_players > 1 and not game.game_ended:
             self.waiting_for_show_confirmation = True
             show_info("Click to turn your cards over")
 
-    def update(self, game:Game) -> None:
+    def update(self, game:rummy.Game) -> None:
         # Update card states
         self.cards.update(game, self)
         
@@ -363,9 +363,9 @@ class TextAnimator(Animator):
 
 
 class Cards:
-    def __init__(self, game:Game, state:GUIState) -> None:
-        self.game : Game = game
-        self.old_game : Game = game
+    def __init__(self, game:rummy.Game, state:GUIState) -> None:
+        self.game : rummy.Game = game
+        self.old_game : rummy.Game = game
         self.cards : dict[str, Card] = {card_name: Card("deck",
                                               DECK_X, DECK_Y,
                                               face_up=False,
@@ -373,7 +373,7 @@ class Cards:
         self.priority_draw_cards : list[Card] = []
         self.update(game, state)
     
-    def update(self, game:Game, state:GUIState):
+    def update(self, game:rummy.Game, state:GUIState):
         # Cards in the deck
         for card_name in game.deck:
             self.cards[card_name].update(DECK_X, DECK_Y, id="deck", face_up=False)
@@ -605,7 +605,7 @@ def draw_buttons(surface:pygame.surface.Surface, state:GUIState):
     for button in state.buttons.values():
         button.draw(surface)
 
-def draw_scores(surface:pygame.surface.Surface, game:Game, state:GUIState) -> None:
+def draw_scores(surface:pygame.surface.Surface, game:rummy.Game, state:GUIState) -> None:
     for i, score in enumerate(game.scores):
         text_surface = SCORE_FONT.render(str(int(state.scores_animators[i].get_current_value())), True, BLACK)
         text_rect = text_surface.get_rect(center=(WIN_WIDTH - MARGIN - SCORE_WIDTH//2, PLAYER_CARDS_Y + MARGIN + i * (CARD_HEIGHT + MARGIN*2) + CARD_HEIGHT//2))
@@ -630,7 +630,7 @@ def show_info(text:str) -> None:
     info_time = time.time()
 
 
-def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
+def on_mouse_click(position:tuple, game:rummy.Game, state:GUIState) -> None:
     """Check if a card is clicked and call a function."""
     if game.game_ended and not game.has_shuffled:
         # Shuffle
@@ -729,10 +729,10 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
 
 def main() -> None:
     # Initialise game
-    game = Game(NUM_PLAYERS)
+    game = rummy.Game(NUM_PLAYERS)
 
     # Initialise GUI state
-    state = GUIState(game, num_human_players=2)
+    state = GUIState(game, num_human_players=None)
 
     # Deal cards
     game.deal()
