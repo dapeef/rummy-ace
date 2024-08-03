@@ -11,6 +11,7 @@ import random
 # Initialize Pygame
 pygame.init()
 
+
 # Variables
 NUM_PLAYERS = 2
 NUM_CARDS_PER_PLAYER = NUM_CARDS[NUM_PLAYERS]
@@ -68,6 +69,7 @@ class GUIState:
             num_human_players = game.num_players
         # Assert that 0 <= num_human_players <= num_players
         assert 0 <= num_human_players <= game.num_players, f"Bad num_human_players: {num_human_players}; must be >= 0 and <= game.num_players"
+        self.num_human_players = num_human_players
 
         # Create buttons
         self.buttons : dict[str, Button] = {
@@ -133,6 +135,11 @@ class GUIState:
 
                 self.meld_selected = []
 
+    def check_for_wait(self, game):
+        if self.human_players[game.whose_go] and self.num_human_players > 1:
+            self.waiting_for_show_confirmation = True
+            show_info("Click to turn your cards over")
+
     def update(self, game:Game) -> None:
         # Update card states
         self.cards.update(game, self)
@@ -144,9 +151,7 @@ class GUIState:
                 "color": GREEN if self.human_players[game.whose_go] else GRAY
             })
             
-            if self.human_players[game.whose_go] and not game.game_ended:
-                self.waiting_for_show_confirmation = True
-                show_info("Click to turn your cards over")
+            self.check_for_wait(game)
 
         # Show/hide cards
         if game.game_ended:
@@ -639,12 +644,17 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
         game.deal()
         show_info("")
 
-        if state.human_players[game.whose_go]:
-            state.waiting_for_show_confirmation = True
-            show_info("Click to turn your cards over")
+        state.check_for_wait(game)
+
 
         return # Disallow any button being clicked at the same time
     
+    if not state.human_players[game.whose_go]:
+        # Computer is playing; block all clicks
+        show_info("Computer is now playing; you can't do anything")
+
+        return # Disallow any button being clicked at the same time
+
     if state.waiting_for_show_confirmation:
         # Flip current players cards
         state.waiting_for_show_confirmation = False
@@ -722,7 +732,7 @@ def main() -> None:
     game = Game(NUM_PLAYERS)
 
     # Initialise GUI state
-    state = GUIState(game, num_human_players=None)
+    state = GUIState(game, num_human_players=2)
 
     # Deal cards
     game.deal()
