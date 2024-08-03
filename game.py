@@ -25,10 +25,10 @@ class Game():
         self.num_players : int = num_players
         self.num_cards : int = NUM_CARDS[num_players]
         self.human_readable : bool = human_readable
-        self.allow_rearranging : bool= allow_rearranging
+        self.allow_rearranging : bool = allow_rearranging
 
         # Initialise scores
-        self.scores = [0 for i in range(self.num_players)]
+        self.scores : list[int] = [0 for i in range(self.num_players)]
 
         # Shuffle the cards in the deck
         self.has_shuffled = False

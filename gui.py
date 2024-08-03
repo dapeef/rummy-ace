@@ -32,16 +32,17 @@ PLAYER_CARDS_Y = CARD_HEIGHT * (NUM_PLAYERS+1) + (NUM_PLAYERS+5)*MARGIN
 SCORE_WIDTH = 50
 WIN_WIDTH = CARD_WIDTH * (NUM_CARDS_PER_PLAYER+1) + MARGIN * (NUM_CARDS_PER_PLAYER+5) + SCORE_WIDTH
 WIN_HEIGHT = CARD_HEIGHT * (2*NUM_PLAYERS+1) + MARGIN * (3*NUM_PLAYERS+7) + INFO_FONT_SIZE
-DECK_X, DECK_Y = WIN_WIDTH//2 - CARD_WIDTH - MARGIN//2, 2*MARGIN
-DISCARD_X, DISCARD_Y = WIN_WIDTH//2 + MARGIN//2, 2*MARGIN
 MELD_BUTTON_X, MELD_BUTTON_Y = 2*MARGIN, 2*MARGIN
 MELD_X, MELD_Y = 2*MARGIN, 4*MARGIN + CARD_HEIGHT
+DECK_X, DECK_Y = max(MELD_BUTTON_X + 110 + 120 + 2*MARGIN, WIN_WIDTH//2 - CARD_WIDTH - MARGIN//2), 2*MARGIN
+DISCARD_X, DISCARD_Y = DECK_X + MARGIN + CARD_WIDTH, 2*MARGIN
 
 WHITE = (255, 255, 255)
 GREEN = (0, 100, 0)
 LIGHT_GREEN = (152, 251, 152)
 RED = (255, 0, 0)
 BLACK = (0, 0, 0)
+GRAY = (128, 128, 128)
 TABLE_COLOUR = (161, 102, 47) # Brown
 
 # Setup display
@@ -62,9 +63,13 @@ info_time : float = 0.0
 
 
 class GUIState:
-    def __init__(self, game:Game, game_type:str="pvp") -> None:
-        # Assert that game_type is a valid option
-        assert game_type in ["pvp", "pva"], f"Bad game_type: {game_type}"
+    def __init__(self, game:Game, num_human_players:int|None=None) -> None:
+        if num_human_players is None:
+            num_human_players = game.num_players
+        # Assert that 0 <= num_human_players <= num_players
+        assert 0 <= num_human_players <= game.num_players, f"Bad num_human_players: {num_human_players}; must be >= 0 and <= game.num_players"
+
+        # Create buttons
         self.buttons : dict[str, Button] = {
             "create_cancel_meld": Button("create_meld",
                     MELD_BUTTON_X, MELD_BUTTON_Y,
@@ -80,17 +85,30 @@ class GUIState:
         self.change_meld_mode(False)
         self.meld_selected : list[int] = []
 
+        # Create cards
         self.cards : Cards = Cards(game, self)
 
-        self.player_go_animator = FloatAnimator(game.whose_go, 0.5)
-
+        # Assign which players are human
         self.players_at_table = [] # Players who can see their cards
-        if game_type == "pvp":
-            self.human_players = [True for _ in range(game.num_players)] # Players who can see their cards
-        elif game_type == "pva":
-            self.human_players = [False for _ in range(game.num_players)]
-            self.human_players[random.randint(0, game.num_players-1)] = True
+        self.human_players = [True] * num_human_players + [False] * (game.num_players-num_human_players)
+        random.shuffle(self.human_players)
 
+        # Create animator for whose_go bar
+        self.player_go_animator = CompoundAnimator({
+            "position": FloatAnimator(game.whose_go, 0.5),
+            "color": ColorAnimator(GREEN if self.human_players[game.whose_go] else GRAY, 0.5)})
+
+        # Create animators for scores
+        self.scores_animators = [FloatAnimator(0, CARD_ANIMATION_TIME, animation_type="linear") for _ in range(game.num_players)]
+
+        # Initialise tracker for whose_go in order to detect player change
+        if self.human_players[game.whose_go]:
+            self.waiting_for_show_confirmation = True
+            show_info("Click to turn your cards over")
+        else:
+            self.waiting_for_show_confirmation = False
+
+        # Force initial update
         self.update(game)
     
     def change_meld_mode(self, enabled:bool) -> None:
@@ -120,14 +138,28 @@ class GUIState:
         self.cards.update(game, self)
         
         # Move green player bar
-        if self.player_go_animator.target_value != game.whose_go:
-            self.player_go_animator.start_animation(game.whose_go)
-        
+        if self.player_go_animator.get_target_value("position") != game.whose_go:
+            self.player_go_animator.start_animation({
+                "position": game.whose_go,
+                "color": GREEN if self.human_players[game.whose_go] else GRAY
+            })
+            
+            if self.human_players[game.whose_go] and not game.game_ended:
+                self.waiting_for_show_confirmation = True
+                show_info("Click to turn your cards over")
+
         # Show/hide cards
         if game.game_ended:
             self.players_at_table = [i for i in range(game.num_players)]
+        elif self.waiting_for_show_confirmation:
+            self.players_at_table = []
         else:
             self.players_at_table = [game.whose_go] if self.human_players[game.whose_go] else []
+        
+        # Check whether score has changed
+        for i in range(game.num_players):
+            if self.scores_animators[i].get_target_value() != game.scores[i]:
+                self.scores_animators[i].start_animation(game.scores[i])
 
 
 class Animator:
@@ -277,14 +309,14 @@ class BooleanAnimator(Animator):
         self.float_animator = FloatAnimator(int(initial_value), animation_time, animation_type)
     
     def start_animation(self, target_value:bool) -> None:
-        if target_value != self.float_animator.target_value:
+        if target_value != self.float_animator.get_target_value():
             self.float_animator.start_animation(int(target_value))
     
     def get_current_value(self) -> bool:
         return bool(self.float_animator.get_current_value())
         
     def get_target_value(self) -> bool:
-        return bool(self.float_animator.target_value)
+        return bool(self.float_animator.get_target_value())
 
     def set_value(self, value:bool) -> None:
         self.float_animator.set_value(int(value))
@@ -306,8 +338,7 @@ class TextAnimator(Animator):
             self.start_text = self.target_text
             self.target_text = target_text
 
-            self.bool_animator.float_animator.start_value = 0
-            self.bool_animator.float_animator.target_value = 0
+            self.bool_animator.float_animator.set_value(0)
             self.bool_animator.start_animation(1)
     
     def get_current_value(self) -> str:
@@ -379,10 +410,8 @@ class Cards:
         # Handle priority cards - cards which need to be drawn last so they appear on top
         self.priority_draw_cards : list[Card] = []
 
-        if len(game.discard_pile) > 0:
-
-            # Add up to two cards from the top of discard pile to priority drawing; to be drawn at the end
-            self.priority_draw_cards += [self.cards[game.discard_pile[i]] for i in range(max(-2, -len(game.discard_pile)), 0)]
+        # Add discard pile to priority drawing; to be drawn at the end
+        self.priority_draw_cards += [self.cards[card] for card in game.discard_pile]
 
         for card in self.cards.values():
             if any([card.x.is_animating(), card.y.is_animating()]):
@@ -424,18 +453,18 @@ class Card:
     def update(self, x:int|None=None, y:int|None=None, id:str|None=None, face_up:bool=True, selected:bool|None=False):
         # Position
         if x is None:
-            x = self.x.target_value
+            x = self.x.get_target_value()
         if y is None:
-            y = self.y.target_value
+            y = self.y.get_target_value()
 
-        if x != self.x.target_value or y != self.y.target_value:
+        if x != self.x.get_target_value() or y != self.y.get_target_value():
             self.x.start_animation(x)
             self.y.start_animation(y)
 
         if not id is None:
             self.id = id
     
-        if bool(self.face_up.animators["boolean"].float_animator.target_value) != face_up:
+        if bool(self.face_up.animators["boolean"].get_target_value()) != face_up:
             self.face_up.start_animation({
                 "boolean": face_up,
                 "color": WHITE if face_up else RED,
@@ -443,7 +472,7 @@ class Card:
                 "text_width": 1 if face_up else -1
             })
 
-        if not selected is None and bool(self.selected.animators["boolean"].float_animator.target_value) != selected:
+        if not selected is None and bool(self.selected.animators["boolean"].get_target_value()) != selected:
             self.selected.start_animation({
                 "boolean": selected,
                 "color": LIGHT_GREEN if selected else WHITE
@@ -506,18 +535,18 @@ class Button:
     def update(self, x:int|None=None, y:int|None=None, width:int|None=None, height:int|None=None, id:str|None=None, text:str|None=None, enabled:bool|None=None):
         # Position
         if x is None:
-            x = self.x.target_value
+            x = self.x.get_target_value()
         if y is None:
-            y = self.y.target_value
+            y = self.y.get_target_value()
 
-        if x != self.x.target_value or y != self.y.target_value:
+        if x != self.x.get_target_value() or y != self.y.get_target_value():
             self.x.start_animation(x)
             self.y.start_animation(y)
 
         # Size
-        if not width is None and width != self.width.target_value:
+        if not width is None and width != self.width.get_target_value():
             self.width.start_animation(width)
-        if not height is None and height != self.height.target_value:
+        if not height is None and height != self.height.get_target_value():
             self.height.start_animation(height)
 
         # ID
@@ -571,9 +600,9 @@ def draw_buttons(surface:pygame.surface.Surface, state:GUIState):
     for button in state.buttons.values():
         button.draw(surface)
 
-def draw_scores(surface:pygame.surface.Surface, game:Game) -> None:
+def draw_scores(surface:pygame.surface.Surface, game:Game, state:GUIState) -> None:
     for i, score in enumerate(game.scores):
-        text_surface = SCORE_FONT.render(str(score), True, BLACK)
+        text_surface = SCORE_FONT.render(str(int(state.scores_animators[i].get_current_value())), True, BLACK)
         text_rect = text_surface.get_rect(center=(WIN_WIDTH - MARGIN - SCORE_WIDTH//2, PLAYER_CARDS_Y + MARGIN + i * (CARD_HEIGHT + MARGIN*2) + CARD_HEIGHT//2))
         surface.blit(text_surface, text_rect)
 
@@ -605,9 +634,20 @@ def on_mouse_click(position:tuple, game:Game, state:GUIState) -> None:
 
         return # Disallow any button being clicked at the same time
     
-    elif game.game_ended and game.has_shuffled:
+    if game.game_ended and game.has_shuffled:
         # Start a new game
         game.deal()
+        show_info("")
+
+        if state.human_players[game.whose_go]:
+            state.waiting_for_show_confirmation = True
+            show_info("Click to turn your cards over")
+
+        return # Disallow any button being clicked at the same time
+    
+    if state.waiting_for_show_confirmation:
+        # Flip current players cards
+        state.waiting_for_show_confirmation = False
         show_info("")
 
         return # Disallow any button being clicked at the same time
@@ -682,7 +722,7 @@ def main() -> None:
     game = Game(NUM_PLAYERS)
 
     # Initialise GUI state
-    state = GUIState(game, "pvp")
+    state = GUIState(game, num_human_players=None)
 
     # Deal cards
     game.deal()
@@ -716,23 +756,23 @@ def main() -> None:
         # Draw banner to display current player
         pygame.draw.rect(
             screen,
-            GREEN,
+            state.player_go_animator.get_current_value("color"),
             pygame.Rect(
                 PLAYER_CARDS_X,
-                PLAYER_CARDS_Y + (CARD_HEIGHT + MARGIN*2)*state.player_go_animator.get_current_value(),
+                PLAYER_CARDS_Y + (CARD_HEIGHT + MARGIN*2)*state.player_go_animator.get_current_value("position"),
                 (CARD_WIDTH+MARGIN) * (NUM_CARDS_PER_PLAYER+1) + MARGIN,
                 CARD_HEIGHT + 2*MARGIN),
             border_radius=CARD_CORNER_RADIUS + MARGIN
         )
 
-        # Draw cards
-        state.cards.draw(screen)
-
         # Draw buttons
         draw_buttons(screen, state)
 
+        # Draw cards
+        state.cards.draw(screen)
+
         # Draw scores
-        draw_scores(screen, game)
+        draw_scores(screen, game, state)
 
         # Draw info
         draw_info(screen)
