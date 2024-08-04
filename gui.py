@@ -7,6 +7,7 @@ import math
 import copy
 import random
 from ginny import Ginny
+import threading
 
 
 # Initialize Pygame
@@ -111,6 +112,9 @@ class GUIState:
             else:
                 self.ginnys.append(Ginny(game, i, genome, config))
 
+        # Create thread for ginnys to run in
+        self.ginny_thread = threading.Thread()
+
         # Create animator for whose_go bar
         self.player_go_animator = CompoundAnimator({
             "position": FloatAnimator(game.whose_go, 0.5),
@@ -154,31 +158,43 @@ class GUIState:
         else:
             self.waiting_for_show_confirmation = False
 
+    def start_ginny_turn(self, game):
+        # Get the relevant computer to play their turn
+        self.ginny_thread = threading.Thread(target=self.ginnys[game.whose_go].take_turn)
+        self.ginny_thread.start()
+
     def start_new_game(self, game:rummy.Game):
         game.deal()
 
         self.check_for_wait(game)
         
         if not self.human_players[game.whose_go]:
-            self.ginnys[game.whose_go].take_turn(game)
+            # Get the relevant computer to play their turn
+            self.start_ginny_turn(game)
 
     def update(self, game:rummy.Game) -> None:
         # Update card states
         self.cards.update(game, self)
         
         # On whose_go change
-        if self.player_go_animator.get_target_value("position") != game.whose_go:
+        if self.player_go_animator.get_target_value("position") != game.whose_go:            
+            # Check whether it should wait before flipping cards
+            self.check_for_wait(game)
+            
+            # Join ginny thread if running
+            if not self.human_players[self.player_go_animator.get_target_value("position")] and not game.game_ended:
+                self.ginny_thread.join()
+
+            if not self.human_players[game.whose_go] and not game.game_ended:
+                # Get the relevant computer to play their turn
+                self.start_ginny_turn(game)
+                
             # Move player marker
             self.player_go_animator.start_animation({
                 "position": game.whose_go,
                 "color": GREEN if self.human_players[game.whose_go] else GRAY
             })
-            
-            # Check whether it should wait before flipping cards
-            self.check_for_wait(game)
-            
-            if not self.human_players[game.whose_go] and not game.game_ended:
-                self.ginnys[game.whose_go].take_turn(game)
+
 
         # Show/hide cards
         if self.open_hand:

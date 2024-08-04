@@ -4,17 +4,18 @@ import gzip
 import pickle
 import random
 import itertools
+import time
 
 
 GENOME_FILE_NAME = "ginny_genome.gn"
 CONFIG_FILE_NAME = "ginny_config.txt"
 
 class Ginny:
-    def __init__(self, game:rummy.Game, player:int, genome:neat.DefaultGenome, config:neat.Config, human_readable:bool=True) -> None:
+    def __init__(self, game:rummy.Game, player:int, genome:neat.DefaultGenome, config:neat.Config, human_delay:float=1) -> None:
         self.game = game
         self.player = player
 
-        self.human_readable = human_readable
+        self.human_delay = human_delay
 
         self.genome = genome
         self.config = config
@@ -39,9 +40,13 @@ class Ginny:
         with gzip.open(file_name, "w") as f:
             pickle.dump(self.genome, f)
 
-    def take_turn(self, game:rummy.Game):
+    def take_turn(self):
+        time.sleep(self.human_delay)
+        
         # Pick up a card
-        game.draw(self.player, from_deck=False)
+        self.game.draw(self.player, from_deck=False)
+
+        time.sleep(self.human_delay)
 
         # Meld if possible
         # TODO make this smarter
@@ -50,26 +55,27 @@ class Ginny:
             meld_success = False
 
             # Brute force try every combo
-            positions = [i for i in range(len(game.get_hand()))]
+            positions = [i for i in range(len(self.game.get_hand()))]
 
             combos : list[list[int]]= []
-            for i in range(1, min(len(game.get_hand()), 4)):
-                combos += list(itertools.combinations(range(len(game.get_hand())), i))
+            for i in range(1, min(len(self.game.get_hand()), 4)):
+                combos += list(itertools.combinations(range(len(self.game.get_hand())), i))
 
             while len(combos) > 0:
                 success = True
 
                 try:
-                    game.lay_meld(self.player, combos.pop())
+                    self.game.lay_meld(self.player, combos.pop())
                 except rummy.BadMeldError as e:
                     success = False
                 
                 if success:
                     meld_success = True
+                    time.sleep(self.human_delay)
                     break
 
             if not meld_success:
                 search_complete = True
         
         # Discard a card
-        game.discard(self.player, random.randint(0, len(game.get_hand())-1))
+        self.game.discard(self.player, random.randint(0, len(self.game.get_hand())-1))
