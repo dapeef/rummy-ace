@@ -16,6 +16,12 @@ NUM_CARDS : dict[int, int] = {
 }
 
 
+class BadMeldError(Exception):
+    def __init__(self, message):            
+        # Call the base class constructor with the parameters it needs
+        super().__init__(message)
+
+
 class Game():
     def __init__(self, num_players:int=2, human_readable:bool=True, allow_rearranging:bool=True) -> None:
         # Assert that the number of players is valid
@@ -125,7 +131,7 @@ class Game():
         assert len(self.get_hand()) > len(card_indices), "Can't play this meld; player must have a card to discard at the end of the turn"
         # Assert that all values of list are in range
         for index in card_indices:
-            assert 0 <= index < len(self.get_hand()), f"Not able to discard card at index {index}; only {len(self.get_hand())} cards in the hand"
+            assert 0 <= index < len(self.get_hand()), f"Not able to meld card at index {index}; only {len(self.get_hand())} cards in the hand"
         # Assert that there are no duplicates in the list
         assert len(card_indices) == len(set(card_indices)), "There are duplicates in the list"
 
@@ -135,18 +141,18 @@ class Game():
         valid_meld = False
 
         # If it's a valid meld on its own, then lay it down
-        valid, type = self.is_valid_meld(cards)
+        valid, meld_type = self.is_valid_meld(cards)
         if valid:
             if self.human_readable:
                 self.sort_cards(cards, in_place=True, is_meld=True)
             self.melds.append(cards)
-            self.meld_types.append(type)
+            self.meld_types.append(meld_type)
             valid_meld = True
         
         else:
             # Otherwise check if it fits with any melds which have already been laid down
             for existing_meld in self.melds:
-                valid, type = self.is_valid_meld(cards + existing_meld)
+                valid, meld_type = self.is_valid_meld(cards + existing_meld)
                 if valid:
                     existing_meld += cards
                     if self.human_readable:
@@ -155,7 +161,7 @@ class Game():
                     break
             
             # Check if melds can be rearranged to fit
-            if not valid_meld and self.allow_rearranging:
+            if not valid_meld and self.allow_rearranging and len(cards) < 3:
                 excess_cards = [len(meld)-3 for meld in self.melds]
 
                 # Check there are even enough cards to allow rearrangement
@@ -209,12 +215,14 @@ class Game():
                             indeces[1] = 0
                         else:
                             # Successfully selected a potential meld
-                            if self.is_valid_meld(proposed_meld)[0]:
+                            valid, meld_type = self.is_valid_meld(proposed_meld)
+                            if valid:
                                 # The meld actually works!
                                 if self.human_readable:
                                     self.sort_cards(proposed_meld, in_place=True, is_meld=True)
                                 melds_temp.append(proposed_meld)
                                 self.melds = melds_temp
+                                self.meld_types.append(meld_type)
 
                                 valid_meld = True
 
@@ -223,7 +231,8 @@ class Game():
                             indeces[1] += 1
 
 
-        assert valid_meld, (f"Bad meld; {cards} is not itself a meld, nor does it fit with any of the other melds")
+        if not valid_meld:
+            raise BadMeldError(f"Bad meld; {cards} is not itself a meld, nor does it fit with any of the other melds")
 
         # Remove from hand
         sorted_indices = sorted(card_indices, reverse=True)

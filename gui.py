@@ -6,6 +6,7 @@ import time
 import math
 import copy
 import random
+from ginny import Ginny
 
 
 # Initialize Pygame
@@ -13,7 +14,7 @@ pygame.init()
 
 
 # Variables
-NUM_PLAYERS = 4
+NUM_PLAYERS = 2
 NUM_CARDS_PER_PLAYER = rummy.NUM_CARDS[NUM_PLAYERS]
 
 # Constants
@@ -26,7 +27,7 @@ BUTTON_CORNER_RADIUS = 5
 BUTTON_BORDER_THICKNESS = 2
 BUTTON_ANIMATION_TIME = .5 # secs
 
-INFO_FONT_SIZE = 25
+INFO_FONT_SIZE = 20
 MARGIN = 10
 PLAYER_CARDS_X = MARGIN
 PLAYER_CARDS_Y = CARD_HEIGHT * (NUM_PLAYERS+1) + (NUM_PLAYERS+5)*MARGIN
@@ -53,7 +54,7 @@ pygame.display.set_caption('Rummy GUI')
 # Fonts
 CARD_FONT = pygame.font.Font("arial.ttf", size=30)
 BUTTON_FONT = pygame.font.Font("arial.ttf", size=30)
-INFO_FONT = pygame.font.Font(None, size=INFO_FONT_SIZE)
+INFO_FONT = pygame.font.Font("arial.ttf", size=INFO_FONT_SIZE)
 SCORE_FONT = pygame.font.Font(None, size=30)
 
 # Info variables
@@ -64,12 +65,15 @@ info_time : float = 0.0
 
 
 class GUIState:
-    def __init__(self, game:rummy.Game, num_human_players:int|None=None) -> None:
+    def __init__(self, game:rummy.Game, num_human_players:int|None=None, open_hand:bool=False) -> None:
         if num_human_players is None:
             num_human_players = game.num_players
         # Assert that 0 <= num_human_players <= num_players
         assert 0 <= num_human_players <= game.num_players, f"Bad num_human_players: {num_human_players}; must be >= 0 and <= game.num_players"
         self.num_human_players = num_human_players
+
+        # Save values
+        self.open_hand = open_hand
 
         # Create buttons
         self.buttons : dict[str, Button] = {
@@ -95,6 +99,18 @@ class GUIState:
         self.human_players = [True] * num_human_players + [False] * (game.num_players-num_human_players)
         random.shuffle(self.human_players)
 
+        # Create instances of Ginny
+        genome = Ginny.get_genome()
+        config = Ginny.get_config()
+
+        self.ginnys : list[Ginny | None] = []
+        
+        for i in range(game.num_players):
+            if self.human_players[i]:
+                self.ginnys.append(None)
+            else:
+                self.ginnys.append(Ginny(game, i, genome, config))
+
         # Create animator for whose_go bar
         self.player_go_animator = CompoundAnimator({
             "position": FloatAnimator(game.whose_go, 0.5),
@@ -104,11 +120,7 @@ class GUIState:
         self.scores_animators = [FloatAnimator(0, CARD_ANIMATION_TIME, animation_type="linear") for _ in range(game.num_players)]
 
         # Initialise tracker for whose_go in order to detect player change
-        if self.human_players[game.whose_go]:
-            self.waiting_for_show_confirmation = True
-            show_info("Click to turn your cards over")
-        else:
-            self.waiting_for_show_confirmation = False
+        self.check_for_wait(game)
 
         # Force initial update
         self.update(game)
@@ -135,26 +147,43 @@ class GUIState:
 
                 self.meld_selected = []
 
-    def check_for_wait(self, game):
-        if self.human_players[game.whose_go] and self.num_human_players > 1 and not game.game_ended:
+    def check_for_wait(self, game:rummy.Game):
+        if self.human_players[game.whose_go] and self.num_human_players > 1 and not game.game_ended and not self.open_hand:
             self.waiting_for_show_confirmation = True
             show_info("Click to turn your cards over")
+        else:
+            self.waiting_for_show_confirmation = False
+
+    def start_new_game(self, game:rummy.Game):
+        game.deal()
+
+        self.check_for_wait(game)
+        
+        if not self.human_players[game.whose_go]:
+            self.ginnys[game.whose_go].take_turn(game)
 
     def update(self, game:rummy.Game) -> None:
         # Update card states
         self.cards.update(game, self)
         
-        # Move green player bar
+        # On whose_go change
         if self.player_go_animator.get_target_value("position") != game.whose_go:
+            # Move player marker
             self.player_go_animator.start_animation({
                 "position": game.whose_go,
                 "color": GREEN if self.human_players[game.whose_go] else GRAY
             })
             
+            # Check whether it should wait before flipping cards
             self.check_for_wait(game)
+            
+            if not self.human_players[game.whose_go] and not game.game_ended:
+                self.ginnys[game.whose_go].take_turn(game)
 
         # Show/hide cards
-        if game.game_ended:
+        if self.open_hand:
+            self.players_at_table = [i for i in range(game.num_players)]
+        elif game.game_ended:
             self.players_at_table = [i for i in range(game.num_players)]
         elif self.waiting_for_show_confirmation:
             self.players_at_table = []
@@ -641,11 +670,9 @@ def on_mouse_click(position:tuple, game:rummy.Game, state:GUIState) -> None:
     
     if game.game_ended and game.has_shuffled:
         # Start a new game
-        game.deal()
         show_info("")
 
-        state.check_for_wait(game)
-
+        state.start_new_game(game)
 
         return # Disallow any button being clicked at the same time
     
@@ -672,7 +699,7 @@ def on_mouse_click(position:tuple, game:rummy.Game, state:GUIState) -> None:
             elif button.id == "confirm_meld":
                 try:
                     game.lay_meld(game.whose_go, state.meld_selected)
-                except AssertionError as e:
+                except (AssertionError, rummy.BadMeldError) as e:
                     show_info(e)
                 
                 state.change_meld_mode(False)
@@ -732,10 +759,10 @@ def main() -> None:
     game = rummy.Game(NUM_PLAYERS)
 
     # Initialise GUI state
-    state = GUIState(game, num_human_players=None)
+    state = GUIState(game, num_human_players=1, open_hand=False)
 
-    # Deal cards
-    game.deal()
+    # Start new game
+    state.start_new_game(game)
     
     # Initialise pygame clock
     clock = pygame.time.Clock()
