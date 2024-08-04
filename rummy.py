@@ -62,6 +62,7 @@ class Game():
         self.has_drawn = False
 
     def deal(self):
+        # Assert that the deck has been shuffled before dealing
         assert self.has_shuffled, "Can't deal until you've shuffled"
 
         # Deal the cards
@@ -69,6 +70,15 @@ class Game():
         self.discard_pile = [self.deck[self.num_players * self.num_cards]]
         self.deck = self.deck[self.num_players * self.num_cards + 1:]
 
+        # Initialise players' knowledge of where cards are
+        self.player_knowledge_deck : list[list[str]] = [DECK.copy() for _ in range(self.num_players)]
+        self.player_knowledge_hands : list[list[list[str]]] = [[[] for _ in range(self.num_players)] for _ in range(self.num_players)]
+        for player in range(self.num_players):
+            # Remove discard card and player's hand from knowledge of the deck
+            self.player_knowledge_deck[player].remove(self.discard_pile[0])
+            for card in self.get_hand(player):
+                self.player_knowledge_deck[player].remove(card)
+    
         # Sort the hands for easier legibility
         if self.human_readable:
             self.hands = [self.sort_cards(hand) for hand in self.hands]
@@ -88,7 +98,10 @@ class Game():
 
         # Draw card
         if from_deck:
-            self.get_hand().append(self.deck.pop(0))
+            drawn_card = self.deck.pop(0)
+            self.get_hand().append(drawn_card)
+
+            self.player_knowledge_deck[player].remove(drawn_card)
 
             # If the deck has run out of cards, shuffle the discard pile (excluding the top-most card)
             if len(self.deck) == 0:
@@ -96,10 +109,20 @@ class Game():
                 random.shuffle(self.deck)
 
                 self.discard_pile = []
-        else:
-            self.get_hand().append(self.discard_pile.pop())
+                
+                # Update card counting knowledge
+                self.player_knowledge_deck = [self.deck.copy() for _ in range(self.num_players)]
 
-        self.sort_cards(self.get_hand(), in_place=True)
+        else:
+            drawn_card = self.discard_pile.pop()
+            self.get_hand().append(drawn_card)
+
+            # Update card counting
+            for i in range(self.num_players):
+                self.player_knowledge_hands[i][player].append(drawn_card)
+
+        if self.human_readable:
+            self.sort_cards(self.get_hand(), in_place=True)
 
         self.has_drawn = True
 
@@ -114,7 +137,16 @@ class Game():
         assert 0 <= card_index < len(self.get_hand()), f"Not able to discard card at index {card_index}; only {len(self.get_hand())} cards in the hand"
 
         # Discard card
-        self.discard_pile.append(self.get_hand().pop(card_index))
+        discard_card = self.get_hand().pop(card_index)
+        self.discard_pile.append(discard_card)
+
+        # Update card counting
+        for i in range(self.num_players):
+            try:
+                self.player_knowledge_hands[i][player].remove(discard_card)
+            except ValueError:
+                pass
+
         self.has_drawn = False
 
         # End turn
@@ -239,6 +271,19 @@ class Game():
         for index in sorted_indices:
             self.get_hand().pop(index)
 
+        # Update card counting
+        for i in range(self.num_players):
+            for card in cards:
+                try:
+                    self.player_knowledge_hands[i][player].remove(card)
+                except ValueError:
+                    pass
+
+                try:
+                    self.player_knowledge_deck[i].remove(card)
+                except ValueError:
+                    pass
+
 
     def sort_cards(self, cards:list[str], in_place:bool=False, is_meld=False) -> list[str] | None:
         # Handle KA2 melds
@@ -325,6 +370,7 @@ class Game():
 
         # print(f"Game has ended. Player {self.whose_go} has won. Scores on the doors: {self.scores}")
 
+
     def get_hand(self, player=None) -> list[str]:
         if player is None:
             player = self.whose_go
@@ -338,6 +384,20 @@ class Game():
             score += CARD_SCORES[NUMBERS.index(card[0])]
 
         return score
+
+    def get_knowledge_deck(self, player:int) -> list[str]:
+        # Assert that the correct player is playing
+        assert player == self.whose_go, f"Player {player} can't access knowledge; it's not their go"
+
+        return self.player_knowledge_deck[player]
+    
+    def get_knowledge_hands(self, player:int) -> list[str]:
+        # Assert that the correct player is playing
+        assert player == self.whose_go, f"Player {player} can't access knowledge; it's not their go"
+
+        self.player_knowledge_hands[player][player] = self.get_hand(player).copy()
+
+        return self.player_knowledge_hands[player]
 
 
 if __name__ == "__main__":

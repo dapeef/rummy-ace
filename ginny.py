@@ -40,6 +40,9 @@ class Ginny:
         with gzip.open(file_name, "w") as f:
             pickle.dump(self.genome, f)
 
+    def get_card_value(self, card:str):
+        return random.random()
+
     def take_turn(self):
         time.sleep(self.human_delay)
         

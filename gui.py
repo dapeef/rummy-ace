@@ -172,12 +172,13 @@ class GUIState:
             # Get the relevant computer to play their turn
             self.start_ginny_turn(game)
 
+
     def update(self, game:rummy.Game) -> None:
         # Update card states
         self.cards.update(game, self)
         
         # On whose_go change
-        if self.player_go_animator.get_target_value("position") != game.whose_go:            
+        if self.player_go_animator.get_target_value("position") != game.whose_go:
             # Check whether it should wait before flipping cards
             self.check_for_wait(game)
             
@@ -775,7 +776,7 @@ def main() -> None:
     game = rummy.Game(NUM_PLAYERS)
 
     # Initialise GUI state
-    state = GUIState(game, num_human_players=1, open_hand=False)
+    state = GUIState(game, num_human_players=1, open_hand=True)
 
     # Start new game
     state.start_new_game(game)
