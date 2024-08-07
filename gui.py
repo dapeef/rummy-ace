@@ -92,6 +92,9 @@ class GUIState:
         self.change_meld_mode(False)
         self.meld_selected : list[int] = []
 
+        # Start game
+        # self.start_new_game(game)
+
         # Create cards
         self.cards : Cards = Cards(game, self)
 
@@ -158,7 +161,7 @@ class GUIState:
         else:
             self.waiting_for_show_confirmation = False
 
-    def start_ginny_turn(self, game):
+    def start_ginny_turn(self, game:rummy.Game):
         # Get the relevant computer to play their turn
         self.ginny_thread = threading.Thread(target=self.ginnys[game.whose_go].take_turn)
         self.ginny_thread.start()
@@ -774,6 +777,8 @@ def on_mouse_click(position:tuple, game:rummy.Game, state:GUIState) -> None:
 def main() -> None:
     # Initialise game
     game = rummy.Game(NUM_PLAYERS)
+
+    game.shuffle()
 
     # Initialise GUI state
     state = GUIState(game, num_human_players=1, open_hand=True)

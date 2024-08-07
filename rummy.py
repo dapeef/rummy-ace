@@ -38,14 +38,19 @@ class Game():
 
         # Shuffle the cards in the deck
         self.has_shuffled = False
-        self.shuffle()
+
+        # self.game_ended = True
+        # self.shuffle()
         # Deal cards
         # self.deal()
 
-        self.game_ended = False
+        self.game_ended = True
 
 
     def shuffle(self):
+        # Make sure game has ended before restarting
+        assert self.game_ended, "Can't restart game now; old game hasn't ended yet"
+
         # Create shuffled deck
         self.deck : list[str] = DECK.copy()
         random.shuffle(self.deck)
@@ -86,6 +91,7 @@ class Game():
         # Play has just started
         self.has_shuffled = False
         self.game_ended = False
+        self.num_turns_taken = 0
 
 
     def draw(self, player:int, from_deck:bool=True) -> None:
@@ -285,7 +291,10 @@ class Game():
                     pass
 
 
-    def sort_cards(self, cards:list[str], in_place:bool=False, is_meld=False) -> list[str] | None:
+    @staticmethod
+    def sort_cards(cards:list[str], in_place:bool=False, is_meld=False) -> list[str] | None:
+        number_order = NUMBERS
+
         # Handle KA2 melds
         if is_meld:
             numbers_only = [card[0] for card in cards]
@@ -297,10 +306,7 @@ class Game():
                     # The start of the run is at i+1
                     number_order = DOUBLED_NUMBERS[i+1 : i+1+len(NUMBERS)]
                     break
-        
-        else:
-            number_order = NUMBERS
-
+            
 
         if in_place:
             # Sort by suit
@@ -316,7 +322,8 @@ class Game():
 
             return cards
 
-    def is_valid_meld(self, cards:list[str]) -> bool:
+    @staticmethod
+    def is_valid_meld(cards:list[str]) -> bool:
         # Check that there are no duplicates in the list
         assert len(cards) == len(set(cards)), "There are duplicates in the list"
         
@@ -356,13 +363,15 @@ class Game():
     def _end_turn(self) -> None:
         # Check if the player has cards left. If not, the game has ended
         if len(self.get_hand()) == 0:
-            self._end_game()
+            self.end_game()
 
         if not self.game_ended:
             # Change to next player's turn
             self.whose_go = (self.whose_go + 1) % self.num_players
 
-    def _end_game(self) -> None:
+            self.num_turns_taken += 1
+
+    def end_game(self) -> None:
         self.game_ended = True
 
         for player in range(self.num_players):
@@ -377,7 +386,8 @@ class Game():
 
         return self.hands[player]
 
-    def get_score(self, cards:list[str]) -> int:
+    @staticmethod
+    def get_score(cards:list[str]) -> int:
         score = 0
 
         for card in cards:

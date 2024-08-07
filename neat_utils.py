@@ -4,6 +4,8 @@ import graphviz
 import matplotlib.pyplot as plt
 import numpy as np
 from neat.reporting import BaseReporter
+import gzip
+import pickle
 
 
 class DrawNetReporter(BaseReporter):
@@ -65,6 +67,33 @@ class StatsGraphReporter(BaseReporter):
 
     def info(self, msg):
         print(f"StatsGraphReporter: {msg}")
+
+class SaveBestGenomeReporter(BaseReporter):
+    def __init__(self, file_name) -> None:
+        self.file_name = file_name
+
+    def start_generation(self, generation):
+        pass
+
+    def end_generation(self, config, population, species_set):
+        pass
+
+    def post_evaluate(self, config, population, species, best_genome):
+        # Save best genome
+        with gzip.open(self.file_name, "w") as f:
+            pickle.dump(best_genome, f)
+
+    def complete_extinction(self):
+        pass
+
+    def found_solution(self, config, generation, best):
+        pass
+
+    def species_stagnant(self, sid, species):
+        pass
+
+    def info(self, msg):
+        print(f"SaveBestGenomeReporter: {msg}")
 
 
 def plot_stats(statistics, ylog=False, view=False, filename='avg_fitness.svg'):
@@ -178,8 +207,8 @@ def draw_net(config, genome, view=False, filename="network", node_names=None, sh
         return
 
     # If requested, use a copy of the genome which omits all components that won't affect the output.
-    if prune_unused:
-        genome = genome.get_pruned_copy(config.genome_config)
+    # if prune_unused:
+    #     genome = genome.get_pruned_copy(config.genome_config)
 
     if node_names is None:
         node_names = {}
