@@ -16,6 +16,7 @@ NODE_NAMES = {
     -3: "Deck size",
     -4: "Card score",
     -5: "Num cards to meld",
+    -6: "Num meldable now",
      0: "Paddle\naccel"
 }
 
@@ -49,9 +50,80 @@ class Ginny:
             pickle.dump(self.genome, f)
 
 
-    def check_melds(self, card:str):
-        pass
+    def get_num_friend_cards(self, card:str) -> int:
+        possible_friends = [item for item in rummy.DECK if \
+                                                    item not in self.game.discard_pile and \
+                                                    item not in self.game.get_hand(self.player) and \
+                                                    item != card]
+        
+        possible_friends = self.game.get_knowledge_deck(self.player).copy()
+        for player in range(self.game.num_players):
+            if player != self.player:
+                possible_friends += self.game.get_knowledge_hands(self.player)[player]
+        
+        hand = self.game.get_hand(self.player)
+        if card in hand:
+            proposed_hand = hand.copy()
+        else:
+            proposed_hand = hand.copy() + [card]
 
+        num_friends = 0
+
+        for proposed_friend in possible_friends:
+            if self.check_melds(proposed_friend, proposed_hand) != 0:
+                num_friends += 1
+
+        return num_friends
+
+    def check_melds(self, card:str, hand:list[str]) -> int:
+        num_meldable_cards = 0
+
+        valid_meld = False
+
+        # Brute force try every combo
+        proposed_hand = hand.copy()
+
+        if card in hand:
+            proposed_hand.remove(card)
+
+        combos : list[list[str]] = []
+        for i in range(min(len(proposed_hand), 3)):
+            combos += list(itertools.combinations(proposed_hand, i))
+
+        while len(combos) > 0:
+            cards = list(combos.pop())
+            cards.append(card)
+
+            # If it's a valid meld on its own
+            valid, meld_type = rummy.Game.is_valid_meld(cards)
+            if valid:
+                valid_meld = True
+
+
+            else:
+                # Otherwise check if it fits with any melds which have already been laid down
+                for existing_meld in self.game.melds:
+                    valid, meld_type = rummy.Game.is_valid_meld(cards + existing_meld)
+                    if valid:
+                        valid_meld = True
+                        break
+                
+                # Check if melds can be rearranged to fit
+                if not valid_meld and self.game.allow_rearranging and len(cards) < 3:
+                    excess_cards = [len(meld)-3 for meld in self.game.melds]
+
+                    # Check there are even enough cards to allow rearrangement
+                    if sum(excess_cards) + len(cards) >= 3:
+                        meld, meld_locations, meld_type = self.game.try_rearrange_meld(cards, self.game.melds, self.game.meld_types)
+
+                        if not meld is None:
+                            valid_meld = True
+            
+            if valid_meld:
+                num_meldable_cards += len(cards)
+                break
+
+        return num_meldable_cards
 
     def get_card_value(self, card:str) -> float:
         """
@@ -81,7 +153,10 @@ class Ginny:
         # num_melds = 
 
         # Number of available different possible cards which could complete a meld with this card
-        num_friend_cards = 0
+        num_friend_cards = self.get_num_friend_cards(card)
+
+        # Number of cards this allows Ginny to meld immediately
+        num_immediate_meld_cards = self.check_melds(card, self.game.get_hand(self.player))
 
         # Evaluate network
         inputs = (
@@ -89,7 +164,8 @@ class Ginny:
             min_opponent_cards,
             deck_size,
             card_score,
-            num_friend_cards
+            num_friend_cards,
+            num_immediate_meld_cards
         )
         card_value = self.nn.activate(inputs)
 
@@ -115,9 +191,7 @@ class Ginny:
             meld_success = False
 
             # Brute force try every combo
-            positions = [i for i in range(len(self.game.get_hand()))]
-
-            combos : list[list[int]]= []
+            combos : list[list[int]] = []
             for i in range(1, min(len(self.game.get_hand()), 4)):
                 combos += list(itertools.combinations(range(len(self.game.get_hand())), i))
 

@@ -49,7 +49,7 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
         
     for i in range(len(genomes)):
         for j in range(i + 1, len(genomes)):
-            print(f"Playing games between genomes {i} and {j}")
+            print(f"\nPlaying games between genomes {i} and {j}")
             game, num_turns = play_games([genomes[i][1], genomes[j][1]], config, num_games=num_games)
 
             genomes[i][1].fitness -= game.scores[0] + PENALTY_PER_TURN * num_turns
@@ -91,4 +91,4 @@ def run(winner_file:str=ginny.GENOME_FILE_NAME, config_file:str=ginny.CONFIG_FIL
 
 
 if __name__ == "__main__":
-    run(resume_training=True)
+    run(resume_training=False)

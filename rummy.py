@@ -204,70 +204,17 @@ class Game():
 
                 # Check there are even enough cards to allow rearrangement
                 if sum(excess_cards) + len(cards) >= 3:
-                    def select_card(melds:list[list[str]], index:int) -> str | None:
-                        current_index = 0
+                    meld, meld_locations, meld_type = self.try_rearrange_meld(cards, self.melds, self.meld_types)
 
-                        for i, meld in enumerate(melds):
-                            if len(meld) > 3:
-                                old_current_index = current_index
-                                if self.meld_types[i] == "run":
-                                    current_index += 2
-                                if self.meld_types[i] == "set":
-                                    current_index += len(meld)
-                                
-                                if current_index > index:
-                                    local_index = index - old_current_index
-                                    if self.meld_types[i] == "run":
-                                        self.sort_cards(meld, in_place=True, is_meld=True)
-                                        return meld.pop(local_index - 1) # pops end, then beginning; local_index will only take values of 0 or 1
-                                    if self.meld_types[i] == "set":
-                                        return meld.pop(local_index)
+                    if not meld is None:
+                        # meld_locations.sort(key=lambda x: x[1], reverse=True)
+                        for location in meld_locations:
+                            self.melds[location[0]].pop(location[1])
                         
-                        return None # If hasn't returned by this point, then there are no more cards available
+                        self.melds.append(meld)
+                        self.meld_types.append(meld_type)
 
-                    indeces = [0, 0]
-                    
-                    check_finished = False
-                    while not check_finished:
-                        melds_temp = copy.deepcopy(self.melds)
-                        proposed_meld = copy.deepcopy(cards)
-
-                        run_out_of_cards = [False, False]
-
-                        while len(proposed_meld) < 3 and not any(run_out_of_cards):
-                            current_index = indeces[len(proposed_meld) - 1]
-
-                            next_card = select_card(melds_temp, current_index)
-                            if not next_card is None:
-                                proposed_meld.append(next_card)
-                            else:
-                                run_out_of_cards[len(proposed_meld) - 1] = True
-                        
-                        if run_out_of_cards[0] and len(cards) == 1 or \
-                           run_out_of_cards[1] and len(cards) == 2:
-                            # Completely finished
-                            check_finished = True
-                        elif run_out_of_cards[1] and len(cards) == 1:
-                            # Move carry - 2nd card has been exhaused, try a new first card
-                            indeces[0] += 1
-                            indeces[1] = 0
-                        else:
-                            # Successfully selected a potential meld
-                            valid, meld_type = self.is_valid_meld(proposed_meld)
-                            if valid:
-                                # The meld actually works!
-                                if self.human_readable:
-                                    self.sort_cards(proposed_meld, in_place=True, is_meld=True)
-                                melds_temp.append(proposed_meld)
-                                self.melds = melds_temp
-                                self.meld_types.append(meld_type)
-
-                                valid_meld = True
-
-                                check_finished = True
-
-                            indeces[1] += 1
-
+                        valid_meld = True
 
         if not valid_meld:
             raise BadMeldError(f"Bad meld; {cards} is not itself a meld, nor does it fit with any of the other melds")
@@ -409,18 +356,105 @@ class Game():
 
         return self.player_knowledge_hands[player]
 
+    def select_loose_meld_card(self, melds:list[list[str]], meld_types:list[str], index:int) -> str | None:
+        current_index = 0
+
+        for i, meld in enumerate(melds):
+            if len(meld) > 3:
+                old_current_index = current_index
+                if meld_types[i] == "run":
+                    current_index += 2
+                if meld_types[i] == "set":
+                    current_index += len(meld)
+                
+                if current_index > index:
+                    local_index = index - old_current_index
+                    if meld_types[i] == "run":
+                        self.sort_cards(meld, in_place=True, is_meld=True)
+                        return meld.pop(local_index - 1) # pops end, then beginning; local_index will only take values of 0 or 1
+                    if meld_types[i] == "set":
+                        return meld.pop(local_index)
+        
+        return None # If hasn't returned by this point, then there are no more cards available
+
+    def select_loose_meld_cards(self, melds:list[list[str]], meld_types:list[str]) -> str | None:
+        loose_cards : list[str] = []
+        loose_card_locations : list[tuple[int]] = []
+
+        for i, meld in enumerate(melds):
+            if len(meld) > 3:
+                if meld_types[i] == "run":
+                    self.sort_cards(meld, in_place=True, is_meld=True)
+
+                    loose_cards.append(meld[0])
+                    loose_cards.append(meld[-1])
+
+                    loose_card_locations.append((i, 0))
+                    loose_card_locations.append((i, -1))
+                if meld_types[i] == "set":
+                    for k, card in enumerate(meld):
+                        loose_cards.append(card)
+                        loose_card_locations.append((i, k))
+        
+        return loose_cards, loose_card_locations
+
+    def try_rearrange_meld(self, proposed_meld:list[str], melds:list[list[str]], meld_types:list[str]):
+        assert len(proposed_meld) in [1, 2], f"Bad proposed meld length of {len(proposed_meld)}. Must be either 1 or 2"
+
+        # TODO possibly make this a recursive function? Or use a function to prevent repeating code
+
+        if len(proposed_meld) == 1:
+            loose_cards_1, loose_card_locations_1 = self.select_loose_meld_cards(melds, meld_types)
+
+            for card_1, location_1 in zip(loose_cards_1, loose_card_locations_1):
+                temp_melds = copy.deepcopy(melds)
+                temp_melds[location_1[0]].pop(location_1[1])
+
+                loose_cards_2, loose_card_locations_2 = self.select_loose_meld_cards(temp_melds, meld_types)
+
+                # TODO perhaps don't need to search with 2 cards from the same meld; this would just add the card to that meld
+
+                for card_2, location_2 in zip(loose_cards_2, loose_card_locations_2):
+                    meld_attempt = proposed_meld + [card_1, card_2]
+
+                    meld_validity, meld_type = self.is_valid_meld(meld_attempt)
+
+                    if meld_validity:
+                        meld_location = [location_1, location_2]
+
+                        return meld_attempt, meld_location, meld_type
+            
+        elif len(proposed_meld) == 2:
+            if proposed_meld[0][0] == proposed_meld[1][0] or \
+               proposed_meld[0][1] == proposed_meld[1][1]:
+                loose_cards_1, loose_card_locations_1 = self.select_loose_meld_cards(melds, meld_types)
+
+                for card_1, location_1 in zip(loose_cards_1, loose_card_locations_1):
+                    meld_attempt = proposed_meld + [card_1]
+
+                    meld_validity, meld_type = self.is_valid_meld(meld_attempt)
+
+                    if meld_validity:
+                        meld_location = [location_1]
+
+                        return meld_attempt, meld_location, meld_type
+
+        return None, [], ""
 
 if __name__ == "__main__":
     game = Game(human_readable=True)
 
-    # game.melds = [["Q♣", "K♣", "2♣", "5♣", "3♣", "4♣", "A♣"], ["A♥", "A♣", "A♦", "A♠"], ["2♥", "2♣", "2♦", "2♠"]]
-    # game.meld_types = ["run", "set", "set"]
-    # game.draw(game.whose_go)
-    # game.hands[game.whose_go][0] = "K♠"
-    # # game.hands[game.whose_go][1] = "2♠"
-    # game.lay_meld(game.whose_go, [0])
+    game.shuffle()
+    game.deal()
 
-    # print(game.sort_cards(["K♣", "2♣", "5♣", "3♣", "4♣", "Q♣", "A♣"], is_meld=True))
+    game.melds = [["Q♣", "K♣", "2♣", "5♣", "3♣", "4♣", "A♣"], ["A♥", "A♣", "A♦", "A♠"]]#, ["2♥", "2♣", "2♦", "2♠"]]
+    game.meld_types = ["run", "set"]#, "set"]
+    # print(game.select_loose_meld_cards(game.melds, game.meld_types))
+    game.draw(game.whose_go)
+    game.hands[game.whose_go][0] = "K♠"
+    game.hands[game.whose_go][1] = "2♠"
+    game.lay_meld(game.whose_go, [0, 1])
+    game.discard(game.whose_go, 0)
 
     # game.draw(0)
     # game.lay_meld(0, [6, 7, 8])
