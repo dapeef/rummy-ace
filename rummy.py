@@ -1,5 +1,6 @@
 import random
 import copy
+from dataclasses import dataclass
 
 
 NUMBERS : str = "A234567890JQK"
@@ -14,6 +15,12 @@ NUM_CARDS : dict[int, int] = {
     5 : 6,
     6 : 6
 }
+
+
+@dataclass
+class Knowledge:
+    deck : list[str]
+    hands : list[list[str]]
 
 
 class BadMeldError(Exception):
@@ -76,14 +83,20 @@ class Game():
         self.deck = self.deck[self.num_players * self.num_cards + 1:]
 
         # Initialise players' knowledge of where cards are
-        self.player_knowledge_deck : list[list[str]] = [DECK.copy() for _ in range(self.num_players)]
-        self.player_knowledge_hands : list[list[list[str]]] = [[[] for _ in range(self.num_players)] for _ in range(self.num_players)]
+        self.player_knowledges : list[Knowledge] = [Knowledge(
+            DECK.copy(),
+            [[] for _ in range(self.num_players)]
+        ) for _ in range(self.num_players)]
+
         for player in range(self.num_players):
             # Remove discard card and player's hand from knowledge of the deck
-            self.player_knowledge_deck[player].remove(self.discard_pile[0])
+            self.player_knowledges[player].deck.remove(self.discard_pile[0])
             for card in self.get_hand(player):
-                self.player_knowledge_deck[player].remove(card)
-    
+                self.player_knowledges[player].deck.remove(card)
+            
+            # Write own cards to own knowledge
+            self.player_knowledges[player].hands[player] = self.get_hand(player)
+
         # Sort the hands for easier legibility
         if self.human_readable:
             self.hands = [self.sort_cards(hand) for hand in self.hands]
@@ -107,7 +120,7 @@ class Game():
             drawn_card = self.deck.pop(0)
             self.get_hand().append(drawn_card)
 
-            self.player_knowledge_deck[player].remove(drawn_card)
+            self.player_knowledges[player].deck.remove(drawn_card)
 
             # If the deck has run out of cards, shuffle the discard pile (excluding the top-most card)
             if len(self.deck) == 0:
@@ -117,7 +130,8 @@ class Game():
                 self.discard_pile = []
                 
                 # Update card counting knowledge
-                self.player_knowledge_deck = [self.deck.copy() for _ in range(self.num_players)]
+                for i in range(self.num_players):
+                    self.player_knowledges[i].deck = self.deck.copy()
 
         else:
             drawn_card = self.discard_pile.pop()
@@ -125,7 +139,7 @@ class Game():
 
             # Update card counting
             for i in range(self.num_players):
-                self.player_knowledge_hands[i][player].append(drawn_card)
+                self.player_knowledges[i].hands[player].append(drawn_card)
 
         if self.human_readable:
             self.sort_cards(self.get_hand(), in_place=True)
@@ -149,7 +163,7 @@ class Game():
         # Update card counting
         for i in range(self.num_players):
             try:
-                self.player_knowledge_hands[i][player].remove(discard_card)
+                self.player_knowledges[i].hands[player].remove(discard_card)
             except ValueError:
                 pass
 
@@ -228,12 +242,12 @@ class Game():
         for i in range(self.num_players):
             for card in cards:
                 try:
-                    self.player_knowledge_hands[i][player].remove(card)
+                    self.player_knowledges[i].hands[player].remove(card)
                 except ValueError:
                     pass
 
                 try:
-                    self.player_knowledge_deck[i].remove(card)
+                    self.player_knowledges[i].deck.remove(card)
                 except ValueError:
                     pass
 
@@ -346,15 +360,15 @@ class Game():
         # Assert that the correct player is playing
         assert player == self.whose_go, f"Player {player} can't access knowledge; it's not their go"
 
-        return self.player_knowledge_deck[player]
+        return self.player_knowledges[player].deck
     
     def get_knowledge_hands(self, player:int) -> list[str]:
         # Assert that the correct player is playing
         assert player == self.whose_go, f"Player {player} can't access knowledge; it's not their go"
 
-        self.player_knowledge_hands[player][player] = self.get_hand(player).copy()
+        self.player_knowledges[player].hands[player] = self.get_hand(player).copy()
 
-        return self.player_knowledge_hands[player]
+        return self.player_knowledges[player].hands
 
     def select_loose_meld_card(self, melds:list[list[str]], meld_types:list[str], index:int) -> str | None:
         current_index = 0
