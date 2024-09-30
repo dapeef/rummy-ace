@@ -1,6 +1,6 @@
 import random
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 NUMBERS : str = "A234567890JQK"
@@ -18,13 +18,24 @@ NUM_CARDS : dict[int, int] = {
 
 
 @dataclass
+class CardKnowledge:
+    # Number of possible melds which this card facilitates
+    num_melds : int = 0
+    # Number of available different possible cards which could complete a meld with this card
+    num_friend_cards : int = 0
+    # Number of cards this allows the player to meld immediately
+    num_immediate_meld_cards : int = 0
+
+@dataclass
 class Knowledge:
     deck : list[str]
     hands : list[list[str]]
+    card_values : dict[str, CardKnowledge] = field(default_factory=lambda: {card: CardKnowledge() for card in DECK})
+    partial_melds : list[tuple[list[str]]] = field(default_factory=list) # [(partial meld, cards which can complete meld)]
 
 
 class BadMeldError(Exception):
-    def __init__(self, message):            
+    def __init__(self, message):
         # Call the base class constructor with the parameters it needs
         super().__init__(message)
 
@@ -81,6 +92,10 @@ class Game():
         self.hands = [self.deck[i*self.num_cards : (i+1)*self.num_cards] for i in range(0, self.num_players)]
         self.discard_pile = [self.deck[self.num_players * self.num_cards]]
         self.deck = self.deck[self.num_players * self.num_cards + 1:]
+        
+        # Sort the hands for easier legibility
+        if self.human_readable:
+            self.hands = [self.sort_cards(hand) for hand in self.hands]
 
         # Initialise players' knowledge of where cards are
         self.player_knowledges : list[Knowledge] = [Knowledge(
@@ -94,12 +109,20 @@ class Game():
             for card in self.get_hand(player):
                 self.player_knowledges[player].deck.remove(card)
             
-            # Write own cards to own knowledge
-            self.player_knowledges[player].hands[player] = self.get_hand(player)
+            # Copy own cards to own knowledge
+            self.player_knowledges[player].hands[player] = self.get_hand(player).copy()
 
-        # Sort the hands for easier legibility
-        if self.human_readable:
-            self.hands = [self.sort_cards(hand) for hand in self.hands]
+            # Initialise knowledge of own hand
+            # Find partial melds
+            for ind, i in enumerate(self.get_hand(player)):
+                potential_friends = self.get_possible_meld_friends(i)
+
+                for jnd, j in enumerate(self.get_hand(player)[ind+1:], start=ind+1):
+                    if j in potential_friends.keys():
+                        self.player_knowledges[player].partial_melds.append(([i, j], potential_friends[j]))
+
+            # Based on partial melds, update card scores
+            self.update_card_scores(player)
 
         # Play has just started
         self.has_shuffled = False
@@ -130,8 +153,8 @@ class Game():
                 self.discard_pile = []
                 
                 # Update card counting knowledge
-                for i in range(self.num_players):
-                    self.player_knowledges[i].deck = self.deck.copy()
+                for card in range(self.num_players):
+                    self.player_knowledges[card].deck = self.deck.copy()
 
         else:
             drawn_card = self.discard_pile.pop()
@@ -141,6 +164,16 @@ class Game():
             for i in range(self.num_players):
                 self.player_knowledges[i].hands[player].append(drawn_card)
 
+        # Update knowledge
+        # Add any new partial melds
+        potential_friends = self.get_possible_meld_friends(self.get_hand(player)[-1])
+        for card in self.get_hand(player)[:-1]:
+            if card in potential_friends.keys():
+                self.player_knowledges[player].partial_melds.append(([self.get_hand(player)[-1], card], potential_friends[card]))
+        # Based on partial melds, update card scores
+        self.update_card_scores(player)
+
+        # Sort the hands for easier legibility
         if self.human_readable:
             self.sort_cards(self.get_hand(), in_place=True)
 
@@ -166,6 +199,14 @@ class Game():
                 self.player_knowledges[i].hands[player].remove(discard_card)
             except ValueError:
                 pass
+
+        # Update knowledge
+        # Remove any partial melds which had the melded cards in
+        for ind, meld in reversed(list(enumerate(self.player_knowledges[player].partial_melds))):
+            if discard_card in meld[0]:
+                self.player_knowledges[player].partial_melds.pop(ind)
+        # Based on partial melds, update card scores
+        self.update_card_scores(player)
 
         self.has_drawn = False
 
@@ -232,7 +273,10 @@ class Game():
 
         if not valid_meld:
             raise BadMeldError(f"Bad meld; {cards} is not itself a meld, nor does it fit with any of the other melds")
+        
 
+        # --- Meld has been verified as good ---
+               
         # Remove from hand
         sorted_indices = sorted(card_indices, reverse=True)
         for index in sorted_indices:
@@ -251,6 +295,13 @@ class Game():
                 except ValueError:
                     pass
 
+        # Update knowledge
+        # Remove any partial melds which had the melded cards in
+        for ind, meld in reversed(list(enumerate(self.player_knowledges[player].partial_melds))):
+            if any(item in meld[0] for item in cards):
+                self.player_knowledges[player].partial_melds.pop(ind)
+        # Based on partial melds, update card scores
+        self.update_card_scores(player)
 
     @staticmethod
     def sort_cards(cards:list[str], in_place:bool=False, is_meld=False) -> list[str] | None:
@@ -321,6 +372,49 @@ class Game():
         else:
             return False, None
     
+    @staticmethod
+    def get_possible_meld_friends(card:str) -> dict[str, list[str]]:
+
+        number_index : int = NUMBERS.index(card[0])
+        len_nums : int = len(NUMBERS)
+        
+        possible_friends : dict[str, list[str]] = {}
+        
+        def get_number_diff_card(difference : int):
+            return NUMBERS[(number_index + difference) % len_nums] + card[1]
+        possible_friends[get_number_diff_card(-2)] = [get_number_diff_card(-1)]
+        possible_friends[get_number_diff_card(-1)] = [get_number_diff_card(-2), get_number_diff_card(1)]
+        possible_friends[get_number_diff_card(1)] = [get_number_diff_card(-1), get_number_diff_card(2)]
+        possible_friends[get_number_diff_card(2)] = [get_number_diff_card(1)]
+        
+
+        for suit in SUITS:
+            if suit != card[1]:
+                possible_friends[card[0] + suit] = []
+
+                for suit_2 in SUITS:
+                    if suit_2 != card[1] and suit_2 != suit:
+                        possible_friends[card[0] + suit].append(card[0] + suit_2)
+            
+        return possible_friends
+
+    def update_card_scores(self, player:int) -> None:
+        # Reset values
+        for card in DECK:
+            self.player_knowledges[player].card_values[card].num_melds = 0
+            self.player_knowledges[player].card_values[card].num_friend_cards = 0
+            self.player_knowledges[player].card_values[card].num_immediate_meld_cards = 0
+
+        # Compute values
+        for meld in self.player_knowledges[player].partial_melds:
+            for card in meld[0]:
+                self.player_knowledges[player].card_values[card].num_melds += 1
+                self.player_knowledges[player].card_values[card].num_friend_cards += len(meld[1])
+                
+            for card in meld[1]:
+                self.player_knowledges[player].card_values[card].num_immediate_meld_cards = 3
+    
+
     def _end_turn(self) -> None:
         # Check if the player has cards left. If not, the game has ended
         if len(self.get_hand()) == 0:
@@ -457,6 +551,8 @@ class Game():
 
 if __name__ == "__main__":
     game = Game(human_readable=True)
+
+    game.get_possible_meld_friends("A♥")
 
     game.shuffle()
     game.deal()
