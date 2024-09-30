@@ -6,6 +6,7 @@ import random
 import itertools
 import time
 import numpy as np
+from dataclasses import dataclass
 
 
 GENOME_FILE_NAME = "ginny_genome.gn"
@@ -15,10 +16,25 @@ NODE_NAMES = {
     -2: "Min opps' cards",
     -3: "Deck size",
     -4: "Card score",
-    -5: "Num cards to meld",
-    -6: "Num meldable now",
-     0: "Paddle\naccel"
+    -5: "Num melds",
+    -6: "Num cards to meld",
+    -7: "Num meldable now",
+    -8: "Prox to hand",
+     0: "Card\nvalue"
 }
+
+
+@dataclass
+class CardKnowledge:
+    # Number of possible melds which this card facilitates
+    num_melds : int = 0
+    # Number of available different possible cards which could complete a meld with this card
+    num_friend_cards : int = 0
+    # Number of cards this allows the player to meld immediately
+    num_immediate_meld_cards : int = 0
+    # Proximity to an existing card in the hand (eg 9♣ would have a proximity score of 2 from 9♦. A♣ would be 1 to 3♣)
+    proximity : int = 0
+
 
 class Ginny:
     def __init__(self, game:rummy.Game, player:int, genome:neat.DefaultGenome, config:neat.Config, human_delay:float=1) -> None:
@@ -32,6 +48,9 @@ class Ginny:
 
         # Spin up "brain"
         self.nn = neat.nn.FeedForwardNetwork.create(genome, config)
+
+        # Initialise card value caching
+        self.card_values : dict[str, CardKnowledge] = {card: CardKnowledge() for card in rummy.DECK}
     
 
     @staticmethod
@@ -50,16 +69,58 @@ class Ginny:
             pickle.dump(self.genome, f)
 
 
-    def get_num_friend_cards(self, card:str) -> int:
-        possible_friends = [item for item in rummy.DECK if \
-                                                    item not in self.game.discard_pile and \
-                                                    item not in self.game.get_hand(self.player) and \
-                                                    item != card]
+    def update_card_scores(self) -> None:
+        # Reset values
+        for card in rummy.DECK:
+            self.card_values[card].num_melds = 0
+            self.card_values[card].num_friend_cards = 0
+            self.card_values[card].num_immediate_meld_cards = 0
         
-        possible_friends = self.game.get_knowledge_deck(self.player).copy()
-        for player in range(self.game.num_players):
-            if player != self.player:
-                possible_friends += self.game.get_knowledge_hands(self.player)[player]
+        # Get list of cards which are impossible to be drawn (ie NOT in deck, or in other people's hands. Equiv to in melds, discard, or own hand)
+        impossible_friends = [card for meld in self.game.melds for card in meld] + self.game.discard_pile.copy() + self.game.get_hand(self.player).copy()
+
+        # Compute values
+        for meld in self.game.get_knowledge(self.player).partial_melds:
+            possible_meld_cards = len(meld[1])
+
+            for card in meld[1]:
+                if card in impossible_friends:
+                    possible_meld_cards -= 1
+
+            if possible_meld_cards > 0:
+                for card in meld[0]:
+                    self.card_values[card].num_melds += 1
+                    self.card_values[card].num_friend_cards += possible_meld_cards
+                    
+                for card in meld[1]:
+                    self.card_values[card].num_immediate_meld_cards = 3
+
+        # Update proximity score for cards in current hand
+        for card in self.game.get_hand(self.player):
+            # Runs
+            number_index : int = rummy.NUMBERS.index(card[0])
+            len_nums : int = len(rummy.NUMBERS)
+            def get_number_diff_card(difference : int):
+                return rummy.NUMBERS[(number_index + difference) % len_nums] + card[1]
+            self.card_values[get_number_diff_card(-2)].proximity += 1
+            self.card_values[get_number_diff_card(-1)].proximity += 2
+            self.card_values[get_number_diff_card(1)].proximity += 2
+            self.card_values[get_number_diff_card(2)].proximity += 1
+            # Sets
+            for suit in rummy.SUITS:
+                if suit != card[1]:
+                    self.card_values[card[0] + suit].proximity += 2
+        
+        # TODO take into account currently melded cards
+
+    def get_num_friend_cards(self, card:str) -> int:
+        # possible_friends = [item for item in rummy.DECK if \
+        #                                             item not in self.game.discard_pile and \
+        #                                             item not in self.game.get_hand(self.player) and \
+        #                                             item != card]
+        possible_friends_unflattened = [self.game.get_knowledge(self.player).deck] + \
+                                       [hand for i, hand in enumerate(self.game.get_knowledge(self.player).hands) if i != self.player]
+        possible_friends = [item for sublist in possible_friends_unflattened for item in sublist]
         
         hand = self.game.get_hand(self.player)
         if card in hand:
@@ -132,16 +193,17 @@ class Ginny:
         - Min number of opponents' cards
         - Size of deck
         - Score of card
-        # - Number of possible melds which this card facilitates
+        - Number of possible melds which this card facilitates
         - Number of available different possible cards which could complete a meld with this card
         - Number of cards this allows Ginny to meld immediately
+        - Proximity from one of the cards in the hand already
         """
 
         # Number of turns into the game
         num_turns_taken = self.game.num_turns_taken
 
         # Min number of opponents' cards
-        min_opponent_cards = min([len(hand) for hand in self.game.hands])
+        min_opponent_cards = min([len(hand) for player, hand in enumerate(self.game.hands) if player != self.player])
 
         # Size of deck
         deck_size = len(self.game.deck)
@@ -149,14 +211,17 @@ class Ginny:
         # Score of card
         card_score = self.game.get_score([card])
 
-        # # Number of possible melds which this card facilitates
-        # num_melds = 
+        # Number of possible melds which this card facilitates
+        num_melds = self.card_values[card].num_melds
 
         # Number of available different possible cards which could complete a meld with this card
-        num_friend_cards = self.get_num_friend_cards(card)
+        num_friend_cards = self.card_values[card].num_friend_cards
 
         # Number of cards this allows Ginny to meld immediately
-        num_immediate_meld_cards = self.check_melds(card, self.game.get_hand(self.player))
+        num_immediate_meld_cards = self.card_values[card].num_immediate_meld_cards
+
+        # Proximity to existing cards in the hand
+        proximity = self.card_values[card].proximity
 
         # Evaluate network
         inputs = (
@@ -164,8 +229,10 @@ class Ginny:
             min_opponent_cards,
             deck_size,
             card_score,
+            num_melds,
             num_friend_cards,
-            num_immediate_meld_cards
+            num_immediate_meld_cards,
+            proximity
         )
         card_value = self.nn.activate(inputs)
 
@@ -173,16 +240,20 @@ class Ginny:
 
     def take_turn(self):
         time.sleep(self.human_delay)
+
+        self.update_card_scores()
         
         # Pick up a card
         # Get expectation of deck value
-        expected_deck_value = np.mean([self.get_card_value(card) for card in self.game.get_knowledge_deck(self.player)])
+        expected_deck_value = np.mean([self.get_card_value(card) for card in self.game.get_knowledge(self.player).deck])
         discard_value = self.get_card_value(self.game.discard_pile[-1])
 
         # Draw from whichever has the higher expected value
         self.game.draw(self.player, from_deck=expected_deck_value > discard_value)
 
         time.sleep(self.human_delay)
+
+        self.update_card_scores()
 
         # Meld if possible
         # TODO make this smarter
@@ -210,6 +281,8 @@ class Ginny:
 
             if not meld_success:
                 search_complete = True
+
+        self.update_card_scores()
         
         # Discard lowest value card
         index = np.argmin([self.get_card_value(card) for card in self.game.get_hand()])

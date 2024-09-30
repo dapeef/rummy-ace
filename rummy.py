@@ -30,7 +30,7 @@ class CardKnowledge:
 class Knowledge:
     deck : list[str]
     hands : list[list[str]]
-    card_values : dict[str, CardKnowledge] = field(default_factory=lambda: {card: CardKnowledge() for card in DECK})
+    # card_values : dict[str, CardKnowledge] = field(default_factory=lambda: {card: CardKnowledge() for card in DECK})
     partial_melds : list[tuple[list[str]]] = field(default_factory=list) # [(partial meld, cards which can complete meld)]
 
 
@@ -120,9 +120,8 @@ class Game():
                 for jnd, j in enumerate(self.get_hand(player)[ind+1:], start=ind+1):
                     if j in potential_friends.keys():
                         self.player_knowledges[player].partial_melds.append(([i, j], potential_friends[j]))
-
-            # Based on partial melds, update card scores
-            self.update_card_scores(player)
+            # # Based on partial melds, update card scores
+            # self.update_card_scores(player)
 
         # Play has just started
         self.has_shuffled = False
@@ -170,8 +169,8 @@ class Game():
         for card in self.get_hand(player)[:-1]:
             if card in potential_friends.keys():
                 self.player_knowledges[player].partial_melds.append(([self.get_hand(player)[-1], card], potential_friends[card]))
-        # Based on partial melds, update card scores
-        self.update_card_scores(player)
+        # # Based on partial melds, update card scores
+        # self.update_card_scores(player)
 
         # Sort the hands for easier legibility
         if self.human_readable:
@@ -199,14 +198,18 @@ class Game():
                 self.player_knowledges[i].hands[player].remove(discard_card)
             except ValueError:
                 pass
+            try:
+                self.player_knowledges[i].deck.remove(discard_card)
+            except ValueError:
+                pass
 
         # Update knowledge
         # Remove any partial melds which had the melded cards in
         for ind, meld in reversed(list(enumerate(self.player_knowledges[player].partial_melds))):
             if discard_card in meld[0]:
                 self.player_knowledges[player].partial_melds.pop(ind)
-        # Based on partial melds, update card scores
-        self.update_card_scores(player)
+        # # Based on partial melds, update card scores
+        # self.update_card_scores(player)
 
         self.has_drawn = False
 
@@ -266,6 +269,9 @@ class Game():
                         for location in meld_locations:
                             self.melds[location[0]].pop(location[1])
                         
+                        if self.human_readable:
+                            self.sort_cards(meld, in_place=True, is_meld=True)
+
                         self.melds.append(meld)
                         self.meld_types.append(meld_type)
 
@@ -300,8 +306,8 @@ class Game():
         for ind, meld in reversed(list(enumerate(self.player_knowledges[player].partial_melds))):
             if any(item in meld[0] for item in cards):
                 self.player_knowledges[player].partial_melds.pop(ind)
-        # Based on partial melds, update card scores
-        self.update_card_scores(player)
+        # # Based on partial melds, update card scores
+        # self.update_card_scores(player)
 
     @staticmethod
     def sort_cards(cards:list[str], in_place:bool=False, is_meld=False) -> list[str] | None:
@@ -398,7 +404,7 @@ class Game():
             
         return possible_friends
 
-    def update_card_scores(self, player:int) -> None:
+    '''def update_card_scores(self, player:int) -> None:
         # Reset values
         for card in DECK:
             self.player_knowledges[player].card_values[card].num_melds = 0
@@ -412,7 +418,7 @@ class Game():
                 self.player_knowledges[player].card_values[card].num_friend_cards += len(meld[1])
                 
             for card in meld[1]:
-                self.player_knowledges[player].card_values[card].num_immediate_meld_cards = 3
+                self.player_knowledges[player].card_values[card].num_immediate_meld_cards = 3'''
     
 
     def _end_turn(self) -> None:
@@ -449,20 +455,15 @@ class Game():
             score += CARD_SCORES[NUMBERS.index(card[0])]
 
         return score
-
-    def get_knowledge_deck(self, player:int) -> list[str]:
-        # Assert that the correct player is playing
-        assert player == self.whose_go, f"Player {player} can't access knowledge; it's not their go"
-
-        return self.player_knowledges[player].deck
     
-    def get_knowledge_hands(self, player:int) -> list[str]:
+    def get_knowledge(self, player:int) -> Knowledge:
         # Assert that the correct player is playing
         assert player == self.whose_go, f"Player {player} can't access knowledge; it's not their go"
-
+        
         self.player_knowledges[player].hands[player] = self.get_hand(player).copy()
 
-        return self.player_knowledges[player].hands
+        return self.player_knowledges[player]
+
 
     def select_loose_meld_card(self, melds:list[list[str]], meld_types:list[str], index:int) -> str | None:
         current_index = 0

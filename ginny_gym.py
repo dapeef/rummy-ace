@@ -55,7 +55,7 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
             genomes[i][1].fitness -= game.scores[0] + PENALTY_PER_TURN * num_turns
             genomes[j][1].fitness -= game.scores[1] + PENALTY_PER_TURN * num_turns
 
-            print(f"fitnesses: score: {-game.scores[0]}, {-game.scores[1]} length: {-PENALTY_PER_TURN * num_turns:.2f}")
+            print(f"{i} vs {j} fitnesses: score: {-game.scores[0]}, {-game.scores[1]} length: {-PENALTY_PER_TURN * num_turns:.2f}")
 
                   
 def run(winner_file:str=ginny.GENOME_FILE_NAME, config_file:str=ginny.CONFIG_FILE_NAME, resume_training:bool=False):
