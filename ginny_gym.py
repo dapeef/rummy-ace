@@ -8,6 +8,9 @@ import os
 from multiprocessing import Pool
 from itertools import combinations
 import time
+import random
+from tqdm import tqdm
+from functools import partial
 
 
 MAX_TURNS_PER_GAME = 300
@@ -18,7 +21,54 @@ PENALTY_PER_TURN = MAX_TURN_PENALTY / MAX_TURNS_PER_GAME / NUM_GAMES
 NUM_WORKERS = 16
 CHECKPOINT_FOLDER = "./checkpoints/"
 
+NUM_PLAYERS = 2
+NUM_GAMES_PER_GENOME = 3
 
+
+def generate_stochastic_groups(genomes, num_games_per_genome, num_players):
+    # List to keep track of the number of games each genome has played
+    genome_games_count = [0] * len(genomes)
+    
+    # Set to store unique groups that have already been played
+    played_groups = set()
+    
+    # List to store the selected groups
+    selected_groups = []
+    
+    # Total genomes
+    total_genomes = len(genomes)
+
+    # Continue until every genome has played the desired number of games
+    while min(genome_games_count) < num_games_per_genome:
+        # Create a list of available indices that can still play more games
+        available_indices = [i for i in range(total_genomes) if genome_games_count[i] < num_games_per_genome]
+        
+        # Check if we have enough available indices to form a group
+        if len(available_indices) < num_players:
+            print("Not enough players available to form a group.")
+            break
+        
+        # Sort available indices by the number of games remaining (descending)
+        available_indices.sort(key=lambda i: genome_games_count[i])
+        
+        # Select the first index (with the most games remaining) and then randomly select the rest
+        first_index = available_indices.pop(0)  # Index with the most games remaining
+        indices = [first_index] + random.sample(available_indices, num_players - 1)
+        
+        # Create the group from selected genomes as a frozenset
+        group = frozenset(genomes[index] for index in indices)
+
+        # Ensure the group hasn't been played before
+        if group not in played_groups or len(available_indices) < 2:
+            selected_groups.append(group)
+            played_groups.add(group)  # Mark this group as played
+            
+            # Increment the game count for all selected genomes
+            for index in indices:
+                genome_games_count[index] += 1
+            
+    return selected_groups
+            
 def play_match(genomes:tuple[int, list[neat.DefaultGenome]], config:neat.Config, num_games:int) -> dict[str, int]:
     # Create game instantiation
     game = rummy.Game(len(genomes), human_readable=False)
@@ -58,12 +108,15 @@ def play_match(genomes:tuple[int, list[neat.DefaultGenome]], config:neat.Config,
 
 def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config):
     # Get game pairings
-    genome_groups = list(combinations(genomes, 2))
+    genome_groups = generate_stochastic_groups(genomes, NUM_GAMES_PER_GENOME, NUM_PLAYERS)
 
     # Evaluate pairs using multiprocessing pool
+    print(f"Playing {len(genome_groups)} matches between {len(genomes)} genomes; {NUM_GAMES_PER_GENOME} matches each. {NUM_GAMES} games per match.")
+
+    play_match_partial = partial(play_match, config=config, num_games=NUM_GAMES)
     start_time = time.time()
     with Pool(NUM_WORKERS) as pool:
-        results = pool.starmap(play_match, [(genome_group, config, NUM_GAMES) for genome_group in genome_groups])
+        results = list(tqdm(pool.imap(play_match_partial, genome_groups), total=len(genome_groups)))
     time_diff = time.time() - start_time
 
     # Reset fitness scores -- TODO is this necessary?
@@ -84,8 +137,6 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
           f"Time per turn: {time_diff / sum([result[1] for result in results]) * 1e6 :.1f} µs",
           sep=" --- ",
           end="\n\n")
-    
-    pass
 
 
     # for i in range(len(genomes)):

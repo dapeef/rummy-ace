@@ -69,7 +69,7 @@ class Ginny:
             pickle.dump(self.genome, f)
 
 
-    def update_card_scores(self) -> None:
+    def update_card_scores(self, include_discard=False) -> None:
         # Reset values
         for card in rummy.DECK:
             self.card_values[card].num_melds = 0
@@ -77,7 +77,9 @@ class Ginny:
             self.card_values[card].num_immediate_meld_cards = 0
         
         # Get list of cards which are impossible to be drawn (ie NOT in deck, or in other people's hands. Equiv to in melds, discard, or own hand)
-        impossible_friends = [card for meld in self.game.melds for card in meld] + self.game.discard_pile.copy() + self.game.get_hand(self.player).copy()
+        impossible_friends = [card for meld in self.game.melds for card in meld] + self.game.get_hand(self.player).copy()
+        if not include_discard:
+            impossible_friends += self.game.discard_pile.copy()
 
         # Compute values
         for meld in self.game.get_knowledge(self.player).partial_melds:
@@ -236,12 +238,12 @@ class Ginny:
         )
         card_value = self.nn.activate(inputs)
 
-        return card_value
+        return card_value[0]
 
     def take_turn(self):
         time.sleep(self.human_delay)
 
-        self.update_card_scores()
+        self.update_card_scores(include_discard=True)
         
         # Pick up a card
         # Get expectation of deck value
