@@ -72,29 +72,38 @@ class Ginny:
     def update_card_scores(self, include_discard=False) -> None:
         # Reset values
         for card in rummy.DECK:
-            self.card_values[card].num_melds = 0
-            self.card_values[card].num_friend_cards = 0
-            self.card_values[card].num_immediate_meld_cards = 0
-        
+            self.card_values[card] = CardKnowledge()
+
+        # Check whether this card can be added directly to a meld
+        for meld, meld_type in zip(self.game.melds, self.game.meld_types):
+            if meld_type == "set":
+                remaining_suit = (set(rummy.SUITS) - set([card[1] for card in meld])).pop()
+                self.card_values[meld[0][0] + remaining_suit].num_immediate_meld_cards = 1
+            if meld_type == "run":
+                left_number = rummy.NUMBERS[(rummy.NUMBERS.index(meld[0][0]) - 1) % len(rummy.NUMBERS)]
+                right_number = rummy.NUMBERS[(rummy.NUMBERS.index(meld[-1][0]) + 1) % len(rummy.NUMBERS)]
+                for number in [left_number, right_number]:
+                    self.card_values[number + meld[0][1]].num_immediate_meld_cards = 1
+               
         # Get list of cards which are impossible to be drawn (ie NOT in deck, or in other people's hands. Equiv to in melds, discard, or own hand)
         impossible_friends = [card for meld in self.game.melds for card in meld] + self.game.get_hand(self.player).copy()
         if not include_discard:
             impossible_friends += self.game.discard_pile.copy()
 
         # Compute values
-        for meld in self.game.get_knowledge(self.player).partial_melds:
-            possible_meld_cards = len(meld[1])
+        for partial_meld in self.game.get_knowledge(self.player).partial_melds:
+            possible_meld_cards = len(partial_meld[1])
 
-            for card in meld[1]:
+            for card in partial_meld[1]:
                 if card in impossible_friends:
                     possible_meld_cards -= 1
 
             if possible_meld_cards > 0:
-                for card in meld[0]:
+                for card in partial_meld[0]:
                     self.card_values[card].num_melds += 1
                     self.card_values[card].num_friend_cards += possible_meld_cards
                     
-                for card in meld[1]:
+                for card in partial_meld[1]:
                     self.card_values[card].num_immediate_meld_cards = 3
 
         # Update proximity score for cards in current hand
@@ -177,14 +186,14 @@ class Ginny:
         min_hand_value = min([self.get_card_value(card) for card in self.game.get_hand(self.player)])
         discard_value = self.get_card_value(self.game.discard_pile[-1])
 
-        if min_hand_value <= discard_value:
+        if min_hand_value < discard_value:
             # Get expectation of deck value
             expected_deck_value = np.mean([self.get_card_value(card) for card in self.game.get_knowledge(self.player).deck])
 
             from_deck = expected_deck_value > discard_value
         
         else:
-            from_deck = True
+            from_deck = False
 
         # Draw from whichever has the higher expected value
         self.game.draw(self.player, from_deck=from_deck)

@@ -113,14 +113,8 @@ class Game():
 
             # Initialise knowledge of own hand
             # Find partial melds
-            for ind, i in enumerate(self.get_hand(player)):
-                potential_friends = self.get_possible_meld_friends(i)
-
-                for jnd, j in enumerate(self.get_hand(player)[ind+1:], start=ind+1):
-                    if j in potential_friends.keys():
-                        self.player_knowledges[player].partial_melds.append(([i, j], potential_friends[j]))
-            # # Based on partial melds, update card scores
-            # self.update_card_scores(player)
+            for ind, card in enumerate(self.get_hand(player)):
+                self.update_partial_melds(player, self.get_hand(player)[ind+1:], card)
 
         # Play has just started
         self.has_shuffled = False
@@ -164,12 +158,7 @@ class Game():
 
         # Update knowledge
         # Add any new partial melds
-        potential_friends = self.get_possible_meld_friends(self.get_hand(player)[-1])
-        for card in self.get_hand(player)[:-1]:
-            if card in potential_friends.keys():
-                self.player_knowledges[player].partial_melds.append(([self.get_hand(player)[-1], card], potential_friends[card]))
-        # # Based on partial melds, update card scores
-        # self.update_card_scores(player)
+        self.update_partial_melds(player, self.get_hand(player), self.get_hand(player)[-1])
 
         # Sort the hands for easier legibility
         if self.human_readable:
@@ -207,8 +196,6 @@ class Game():
         for ind, meld in reversed(list(enumerate(self.player_knowledges[player].partial_melds))):
             if discard_card in meld[0]:
                 self.player_knowledges[player].partial_melds.pop(ind)
-        # # Based on partial melds, update card scores
-        # self.update_card_scores(player)
 
         self.has_drawn = False
 
@@ -229,6 +216,10 @@ class Game():
             assert 0 <= index < len(self.get_hand()), f"Not able to meld card at index {index}; only {len(self.get_hand())} cards in the hand"
         # Assert that there are no duplicates in the list
         assert len(card_indices) == len(set(card_indices)), "There are duplicates in the list"
+        
+
+        # Cache old loose cards for comparison after meld
+        old_loose_cards, _ = self.get_loose_meld_cards(self.melds, self.meld_types)
 
         # Get card values from indices
         cards = [self.get_hand()[index] for index in card_indices]
@@ -311,12 +302,18 @@ class Game():
                     pass
 
         # Update knowledge
+        new_loose_cards, _ = self.get_loose_meld_cards(self.melds, self.meld_types)
+        added_loose_cards = list(set(new_loose_cards) - set(old_loose_cards))
+        removed_loose_cards = list(set(old_loose_cards) - set(new_loose_cards))
         # Remove any partial melds which had the melded cards in
         for ind, meld in reversed(list(enumerate(self.player_knowledges[player].partial_melds))):
-            if any(item in meld[0] for item in cards):
+            if any(item in meld[0] for item in cards + removed_loose_cards):
                 self.player_knowledges[player].partial_melds.pop(ind)
-        # # Based on partial melds, update card scores
-        # self.update_card_scores(player)
+        
+        # Update all players' knowledge of fresh partial melds due to new meld
+        for player in range(self.num_players):
+            for ind, card in enumerate(added_loose_cards):
+                self.update_partial_melds(player, added_loose_cards[ind+1:], card)
 
 
     @staticmethod
@@ -459,28 +456,7 @@ class Game():
         return self.player_knowledges[player]
 
 
-    def select_loose_meld_card(self, melds:list[list[str]], meld_types:list[str], index:int) -> str | None:
-        current_index = 0
-
-        for i, meld in enumerate(melds):
-            if len(meld) > 3:
-                old_current_index = current_index
-                if meld_types[i] == "run":
-                    current_index += 2
-                if meld_types[i] == "set":
-                    current_index += len(meld)
-                
-                if current_index > index:
-                    local_index = index - old_current_index
-                    if meld_types[i] == "run":
-                        self.sort_cards(meld, in_place=True, is_meld=True)
-                        return meld.pop(local_index - 1) # pops end, then beginning; local_index will only take values of 0 or 1
-                    if meld_types[i] == "set":
-                        return meld.pop(local_index)
-        
-        return None # If hasn't returned by this point, then there are no more cards available
-
-    def select_loose_meld_cards(self, melds:list[list[str]], meld_types:list[str]) -> str | None:
+    def get_loose_meld_cards(self, melds:list[list[str]], meld_types:list[str]):
         loose_cards : list[str] = []
         loose_card_locations : list[tuple[int]] = []
 
@@ -512,13 +488,13 @@ class Game():
         # TODO possibly make this a recursive function? Or use a function to prevent repeating code
 
         if len(proposed_meld) == 1:
-            loose_cards_1, loose_card_locations_1 = self.select_loose_meld_cards(melds, meld_types)
+            loose_cards_1, loose_card_locations_1 = self.get_loose_meld_cards(melds, meld_types)
 
             for card_1, location_1 in zip(loose_cards_1, loose_card_locations_1):
                 temp_melds = copy.deepcopy(melds)
                 temp_melds[location_1[0]].pop(location_1[1])
 
-                loose_cards_2, loose_card_locations_2 = self.select_loose_meld_cards(temp_melds, meld_types)
+                loose_cards_2, loose_card_locations_2 = self.get_loose_meld_cards(temp_melds, meld_types)
 
                 # TODO perhaps don't need to search with 2 cards from the same meld; this would just add the card to that meld
 
@@ -535,7 +511,7 @@ class Game():
         elif len(proposed_meld) == 2:
             if proposed_meld[0][0] == proposed_meld[1][0] or \
                proposed_meld[0][1] == proposed_meld[1][1]:
-                loose_cards_1, loose_card_locations_1 = self.select_loose_meld_cards(melds, meld_types)
+                loose_cards_1, loose_card_locations_1 = self.get_loose_meld_cards(melds, meld_types)
 
                 for card_1, location_1 in zip(loose_cards_1, loose_card_locations_1):
                     meld_attempt = proposed_meld + [card_1]
@@ -548,6 +524,22 @@ class Game():
                         return meld_attempt, meld_location, meld_type
 
         return None, [], ""
+
+    def update_partial_melds(self, player:int, hand:list[str], new_card:str) -> None:
+        '''
+        Update the partial meld knowledge for a given player based on a new card becoming available (eg added to hand or new loose meld)
+        '''
+        
+        potential_friends = self.get_possible_meld_friends(new_card)
+
+        loose_meld_cards, _ = self.get_loose_meld_cards(self.melds, self.meld_types)
+        check_cards = hand + loose_meld_cards
+        if new_card in check_cards:
+            check_cards.remove(new_card)
+
+        for card in check_cards:
+            if card in potential_friends.keys():
+                self.player_knowledges[player].partial_melds.append(([new_card, card], potential_friends[card]))
 
 
 if __name__ == "__main__":
