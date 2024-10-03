@@ -12,13 +12,13 @@ from dataclasses import dataclass
 GENOME_FILE_NAME = "ginny_genome.gn"
 CONFIG_FILE_NAME = "ginny_config.txt"
 NODE_NAMES = {
-    -1: "Num turns",
+    # -1: "Num turns",
     -2: "Min opps' cards",
-    -3: "Deck size",
+    # -3: "Deck size",
     -4: "Card score",
     -5: "Num melds",
     -6: "Num cards to meld",
-    -7: "Num meldable now",
+    # -7: "Num meldable now",
     -8: "Prox to hand",
      0: "Card\nvalue"
 }
@@ -163,13 +163,13 @@ class Ginny:
 
         # Evaluate network
         inputs = (
-            num_turns_taken,
+            # num_turns_taken,
             min_opponent_cards,
-            deck_size,
+            # deck_size,
             card_score,
             num_melds,
             num_friend_cards,
-            num_immediate_meld_cards,
+            # num_immediate_meld_cards,
             proximity
         )
         card_value = self.nn.activate(inputs)
