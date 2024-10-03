@@ -261,7 +261,7 @@ class Game():
                             self.melds[location[0]].pop(location[1])
 
                             # If stealing the middle card of a meld, then split into two new melds
-                            if not location[1] == 0 and not location[1] == len(self.melds[location[0]]) and self.meld_types[location[0]] == "run":
+                            if not location[1] == 0 and not location[1] in [-1, len(self.melds[location[0]])] and self.meld_types[location[0]] == "run":
                                 left = self.melds[location[0]][:location[1]]
                                 right = self.melds[location[0]][location[1]:]
 

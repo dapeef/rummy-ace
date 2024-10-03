@@ -76,7 +76,7 @@ class Ginny:
 
         # Check whether this card can be added directly to a meld
         for meld, meld_type in zip(self.game.melds, self.game.meld_types):
-            if meld_type == "set":
+            if meld_type == "set" and len(meld) == 3:
                 remaining_suit = (set(rummy.SUITS) - set([card[1] for card in meld])).pop()
                 self.card_values[meld[0][0] + remaining_suit].num_immediate_meld_cards = 1
             if meld_type == "run":
@@ -183,17 +183,21 @@ class Ginny:
         self.update_card_scores(include_discard=True)
         
         # Pick up a card
-        min_hand_value = min([self.get_card_value(card) for card in self.game.get_hand(self.player)])
-        discard_value = self.get_card_value(self.game.discard_pile[-1])
-
-        if min_hand_value < discard_value:
-            # Get expectation of deck value
-            expected_deck_value = np.mean([self.get_card_value(card) for card in self.game.get_knowledge(self.player).deck])
-
-            from_deck = expected_deck_value > discard_value
+        if self.card_values[self.game.discard_pile[-1]].num_immediate_meld_cards > 0:
+            from_deck = False
         
         else:
-            from_deck = False
+            min_hand_value = min([self.get_card_value(card) for card in self.game.get_hand(self.player)])
+            discard_value = self.get_card_value(self.game.discard_pile[-1])
+
+            if min_hand_value < discard_value:
+                # Get expectation of deck value
+                expected_deck_value = np.mean([self.get_card_value(card) for card in self.game.get_knowledge(self.player).deck])
+
+                from_deck = expected_deck_value > discard_value
+            
+            else:
+                from_deck = True
 
         # Draw from whichever has the higher expected value
         self.game.draw(self.player, from_deck=from_deck)
@@ -232,5 +236,19 @@ class Ginny:
         self.update_card_scores()
         
         # Discard lowest value card
-        index = np.argmin([self.get_card_value(card) for card in self.game.get_hand()])
+        hand_values = [self.get_card_value(card) for card in self.game.get_hand()]
+        min_hand_value = np.min(hand_values)
+        min_indices = np.where(hand_values == min_hand_value)[0]
+        
+        # If there's a draw in value, discard the card which has the highest score
+        if len(min_indices) == 0:
+            index = min_indices[0]
+        else:
+            max_card_score = 0
+            for i in min_indices:
+                current_card_score = rummy.Game.get_score([self.game.get_hand()[i]])
+                if current_card_score > max_card_score:
+                    max_card_score = current_card_score
+                    index = i
+            
         self.game.discard(self.player, index)

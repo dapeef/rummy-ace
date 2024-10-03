@@ -16,6 +16,7 @@ pygame.init()
 
 # Variables
 NUM_PLAYERS = 2
+NUM_HUMAN_PLAYERS = 1
 NUM_CARDS_PER_PLAYER = rummy.NUM_CARDS[NUM_PLAYERS]
 
 # Constants
@@ -781,7 +782,7 @@ def main() -> None:
     game.shuffle()
 
     # Initialise GUI state
-    state = GUIState(game, num_human_players=1, open_hand=True)
+    state = GUIState(game, num_human_players=NUM_HUMAN_PLAYERS, open_hand=True)
 
     # Start new game
     state.start_new_game(game)
