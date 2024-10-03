@@ -14,9 +14,9 @@ from functools import partial
 
 
 MAX_TURNS_PER_GAME = 300
-NUM_GAMES = 3
-MAX_TURN_PENALTY = 20 * NUM_GAMES
-PENALTY_PER_TURN = MAX_TURN_PENALTY / MAX_TURNS_PER_GAME / NUM_GAMES
+NUM_GAMES_PER_MATCH = 5
+MAX_TURN_PENALTY = 20 # per game 
+PENALTY_PER_TURN = MAX_TURN_PENALTY * NUM_GAMES_PER_MATCH / MAX_TURNS_PER_GAME / NUM_GAMES_PER_MATCH
 
 NUM_WORKERS = 16
 CHECKPOINT_FOLDER = "./checkpoints/"
@@ -111,9 +111,9 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
     genome_groups = generate_stochastic_groups(genomes, NUM_GAMES_PER_GENOME, NUM_PLAYERS)
 
     # Evaluate pairs using multiprocessing pool
-    print(f"Playing {len(genome_groups)} matches between {len(genomes)} genomes; {NUM_GAMES_PER_GENOME} matches each. {NUM_GAMES} games per match.")
+    print(f"Playing {len(genome_groups)} matches between {len(genomes)} genomes; {NUM_GAMES_PER_GENOME} matches each. {NUM_GAMES_PER_MATCH} games per match.")
 
-    play_match_partial = partial(play_match, config=config, num_games=NUM_GAMES)
+    play_match_partial = partial(play_match, config=config, num_games=NUM_GAMES_PER_MATCH)
     start_time = time.time()
     with Pool(NUM_WORKERS) as pool:
         results = list(tqdm(pool.imap(play_match_partial, genome_groups), total=len(genome_groups)))
@@ -133,7 +133,7 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
     # Print diagnostics
     print(f"\nNum matches: {len(genome_groups)}",
           f"Time: {time_diff:.2f} s",
-          f"Av game length: {sum([result[1] for result in results]) / len(genome_groups) / NUM_GAMES :.1f} turns",
+          f"Av game length: {sum([result[1] for result in results]) / len(genome_groups) / NUM_GAMES_PER_MATCH :.1f} turns",
           f"Time per turn: {time_diff / sum([result[1] for result in results]) * 1e6 :.1f} µs",
           sep=" --- ",
           end="\n\n")
@@ -172,7 +172,7 @@ def run(winner_file:str=ginny.GENOME_FILE_NAME, config_file:str=ginny.CONFIG_FIL
     p.add_reporter(neat.Checkpointer(1, filename_prefix=CHECKPOINT_FOLDER))
 
     # Train the network
-    winner = p.run(eval_genomes, 1000)
+    winner = p.run(eval_genomes, 10000)
     
     # Save best genome
     with gzip.open(winner_file, "w") as f:

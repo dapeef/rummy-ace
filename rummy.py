@@ -30,7 +30,6 @@ class CardKnowledge:
 class Knowledge:
     deck : list[str]
     hands : list[list[str]]
-    # card_values : dict[str, CardKnowledge] = field(default_factory=lambda: {card: CardKnowledge() for card in DECK})
     partial_melds : list[tuple[list[str]]] = field(default_factory=list) # [(partial meld, cards which can complete meld)]
 
 
@@ -404,22 +403,6 @@ class Game():
             
         return possible_friends
 
-    '''def update_card_scores(self, player:int) -> None:
-        # Reset values
-        for card in DECK:
-            self.player_knowledges[player].card_values[card].num_melds = 0
-            self.player_knowledges[player].card_values[card].num_friend_cards = 0
-            self.player_knowledges[player].card_values[card].num_immediate_meld_cards = 0
-
-        # Compute values
-        for meld in self.player_knowledges[player].partial_melds:
-            for card in meld[0]:
-                self.player_knowledges[player].card_values[card].num_melds += 1
-                self.player_knowledges[player].card_values[card].num_friend_cards += len(meld[1])
-                
-            for card in meld[1]:
-                self.player_knowledges[player].card_values[card].num_immediate_meld_cards = 3'''
-    
 
     def _end_turn(self) -> None:
         # Check if the player has cards left. If not, the game has ended
