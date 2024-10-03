@@ -246,12 +246,20 @@ class Ginny:
         self.update_card_scores(include_discard=True)
         
         # Pick up a card
-        # Get expectation of deck value
-        expected_deck_value = np.mean([self.get_card_value(card) for card in self.game.get_knowledge(self.player).deck])
+        min_hand_value = min([self.get_card_value(card) for card in self.game.get_hand(self.player)])
         discard_value = self.get_card_value(self.game.discard_pile[-1])
 
+        if min_hand_value <= discard_value:
+            # Get expectation of deck value
+            expected_deck_value = np.mean([self.get_card_value(card) for card in self.game.get_knowledge(self.player).deck])
+
+            from_deck = expected_deck_value > discard_value
+        
+        else:
+            from_deck = True
+
         # Draw from whichever has the higher expected value
-        self.game.draw(self.player, from_deck=expected_deck_value > discard_value)
+        self.game.draw(self.player, from_deck=from_deck)
 
         time.sleep(self.human_delay)
 
