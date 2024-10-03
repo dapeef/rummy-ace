@@ -264,9 +264,19 @@ class Game():
                     meld, meld_locations, meld_type = self.try_rearrange_meld(cards, self.melds, self.meld_types)
 
                     if not meld is None:
-                        # meld_locations.sort(key=lambda x: x[1], reverse=True)
+                        meld_locations.sort(key=lambda x: x[0], reverse=True)
+
                         for location in meld_locations:
                             self.melds[location[0]].pop(location[1])
+
+                            # If stealing the middle card of a meld, then split into two new melds
+                            if not location[1] == 0 and not location[1] == len(self.melds[location[0]]) and self.meld_types[location[0]] == "run":
+                                left = self.melds[location[0]][:location[1]]
+                                right = self.melds[location[0]][location[1]:]
+
+                                self.melds[location[0]] = left
+                                self.melds.insert(location[0] + 1, right)
+                                self.meld_types.insert(location[0] + 1, "run")
                         
                         if self.human_readable:
                             self.sort_cards(meld, in_place=True, is_meld=True)
@@ -307,6 +317,7 @@ class Game():
                 self.player_knowledges[player].partial_melds.pop(ind)
         # # Based on partial melds, update card scores
         # self.update_card_scores(player)
+
 
     @staticmethod
     def sort_cards(cards:list[str], in_place:bool=False, is_meld=False) -> list[str] | None:
@@ -483,6 +494,11 @@ class Game():
 
                     loose_card_locations.append((i, 0))
                     loose_card_locations.append((i, -1))
+
+                    if len(meld) > 6:
+                        for j in range(3, len(meld) - 3):
+                            loose_cards.append(meld[j])
+                            loose_card_locations.append((i, j))
                 if meld_types[i] == "set":
                     for k, card in enumerate(meld):
                         loose_cards.append(card)
@@ -532,6 +548,7 @@ class Game():
                         return meld_attempt, meld_location, meld_type
 
         return None, [], ""
+
 
 if __name__ == "__main__":
     game = Game(human_readable=True)
