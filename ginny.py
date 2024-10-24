@@ -250,5 +250,7 @@ class Ginny:
                 if current_card_score > max_card_score:
                     max_card_score = current_card_score
                     index = i
-            
+        
+        _all_card_values = {card: self.get_card_value(card) for card in rummy.DECK}
+
         self.game.discard(self.player, index)
